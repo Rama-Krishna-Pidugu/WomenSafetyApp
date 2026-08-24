@@ -29,7 +29,7 @@ import { locationService } from "../modules/location/services/locationService";
 import { nearbyPlacesService } from "../modules/location/services/nearbyPlacesService";
 import { contactStorageService } from "../services/contactStorageService";
 import { sendSilentSms } from "../services/sosNativeService";
-import { API_BASE_URL } from "../api/config";
+import { startLiveLocationSharing, stopLiveLocationSharing } from "../services/liveLocationSharing";
 import { getPublicTrackingUrl } from "../utils/trackingUrl";
 
 export type SafeRouteState = "search" | "results" | "loading" | "navigating";
@@ -92,7 +92,12 @@ export function SafeRouteScreen({
   state?: SafeRouteState;
   onBack?: () => void;
   onStartNavigation?: () => void;
-  onOpenFamilyTracking?: () => void;
+  onOpenFamilyTracking?: (params: {
+    sessionId: string;
+    destinationName: string;
+    destinationLat: number;
+    destinationLng: number;
+  }) => void;
 }) {
   const [screenState, setScreenState] = useState<SafeRouteState>(initialState);
   const [pickedRouteId, setPickedRouteId] = useState("sr1");
@@ -260,19 +265,6 @@ export function SafeRouteScreen({
         geofenceConfig.radiusMeters
       );
       setIsInsideGeofence(inside);
-
-      // Ping backend GPS endpoint
-      fetch(`${API_BASE_URL}/api/v1/gps/ping`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: "usr_active",
-          session_id: trackingSessionId,
-          latitude: newPos.lat,
-          longitude: newPos.lng,
-          battery_level: 90,
-        }),
-      }).catch(() => {});
     });
 
     return () => {
@@ -287,34 +279,18 @@ export function SafeRouteScreen({
     setScreenState("navigating");
     if (externalStartNav) externalStartNav();
 
-    let createdSessionId = "trk_demo";
+    const sessionId = `trk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    setTrackingSessionId(sessionId);
+    await startLiveLocationSharing(sessionId);
 
-    // 1. Create active live tracking session on backend server
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/v1/gps/session/start`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: "usr_active",
-          destination_name: destinationName,
-          destination_lat: destination.lat,
-          destination_lng: destination.lng,
-          route_name: selectedRoute.label,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        createdSessionId = data.session_id;
-        setTrackingSessionId(createdSessionId);
-      }
-    } catch {
-      setTrackingSessionId(createdSessionId);
+    if (!geofenceConfig.autoSendSms) {
+      setSmsSentStatus("Live tracking active. Auto-SMS is turned off in Zone Settings.");
+      return;
     }
 
-    // 2. Load stored emergency contacts & send live tracking link via SMS
     try {
       const contacts = await contactStorageService.getStoredEmergencyContacts();
-      const trackingUrl = getPublicTrackingUrl(createdSessionId);
+      const trackingUrl = getPublicTrackingUrl(sessionId);
       const smsMessage = `🛡️ Aegis Safety Live Tracking: I have started navigation to ${destinationName}. Track my real-time location live on map: ${trackingUrl}`;
 
       if (contacts && contacts.length > 0) {
@@ -324,7 +300,6 @@ export function SafeRouteScreen({
           if (sent) {
             setSmsSentStatus(`Live tracking link sent via SMS to ${phoneNumbers.length} emergency contact(s)!`);
           } else {
-            // Fallback to launch SMS application with pre-filled message
             const firstPhone = phoneNumbers[0];
             const smsUrl = `sms:${firstPhone}${Platform.OS === 'ios' ? '&' : '?'}body=${encodeURIComponent(smsMessage)}`;
             Linking.canOpenURL(smsUrl).then((supported) => {
@@ -339,6 +314,13 @@ export function SafeRouteScreen({
     } catch (err) {
       setSmsSentStatus("Live tracking active.");
     }
+  };
+
+  const handleEndNavigation = async () => {
+    if (trackingSessionId) {
+      await stopLiveLocationSharing(trackingSessionId);
+    }
+    setScreenState("results");
   };
 
   const handleSelectPlace = (place: (typeof PLACES)[0]) => {
@@ -554,7 +536,17 @@ export function SafeRouteScreen({
         {screenState === "navigating" ? (
           <View style={styles.buttonRow}>
             {onOpenFamilyTracking && (
-              <Pressable style={styles.secondaryActionBtn} onPress={onOpenFamilyTracking}>
+              <Pressable
+                style={styles.secondaryActionBtn}
+                onPress={() =>
+                  onOpenFamilyTracking({
+                    sessionId: trackingSessionId ?? "trk_demo",
+                    destinationName,
+                    destinationLat: destination.lat,
+                    destinationLng: destination.lng,
+                  })
+                }
+              >
                 <Users size={18} color={colors.foreground} />
                 <Text style={styles.secondaryBtnText}>Family Share</Text>
               </Pressable>
@@ -563,7 +555,7 @@ export function SafeRouteScreen({
               <AppButton
                 variant="secondary"
                 leading={<Square size={16} color={colors.foreground} />}
-                onPress={() => setScreenState("results")}
+                onPress={handleEndNavigation}
               >
                 End Navigation
               </AppButton>

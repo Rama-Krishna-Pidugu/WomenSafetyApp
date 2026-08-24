@@ -6,7 +6,6 @@
  */
 
 import * as Location from "expo-location";
-import { API_BASE_URL } from "../api/config";
 import { getPublicTrackingUrl } from "../utils/trackingUrl";
 
 export interface LiveLocationData {
@@ -20,6 +19,11 @@ export interface LiveLocationData {
 }
 
 const UPDATE_INTERVAL_MS = 4500; // 4.5 seconds tick throttle
+const FIREBASE_RTDB_BASE = "https://women-safety-3d446-default-rtdb.firebaseio.com";
+
+export function trackingSessionUrl(sessionId: string): string {
+  return `${FIREBASE_RTDB_BASE}/tracking_sessions/${sessionId}.json`;
+}
 
 let watchSubscription: Location.LocationSubscription | null = null;
 let updateIntervalTimer: ReturnType<typeof setInterval> | null = null;
@@ -104,15 +108,6 @@ export async function stopLiveLocationSharing(sessionId: string): Promise<void> 
   } else {
     await pushLocationUpdate(sessionId, "User", { lat: 12.9716, lng: 77.5946 }, false);
   }
-
-  // Also hit backend stop endpoint
-  try {
-    await fetch(`${API_BASE_URL}/api/v1/gps/session/${sessionId}/stop`, {
-      method: "POST",
-    });
-  } catch {
-    /* best effort */
-  }
 }
 
 /**
@@ -123,9 +118,10 @@ export function getTrackingShareLink(sessionId: string): string {
 }
 
 /**
- * Pushes location payload to backend API / Firebase Realtime Database
+ * Pushes location payload to Firebase Realtime Database — the single source of truth for
+ * live position, read by both FamilyLiveTrackingScreen and web/track.html.
  */
-async function pushLocationUpdate(
+export async function pushLocationUpdate(
   sessionId: string,
   userName: string,
   coords: { lat: number; lng: number },
@@ -140,30 +136,37 @@ async function pushLocationUpdate(
     active: active,
   };
 
-  // 1. Direct sync to Firebase Realtime Database
-  const firebaseRtdbUrl = `https://women-safety-3d446-default-rtdb.firebaseio.com/tracking_sessions/${sessionId}.json`;
-  fetch(firebaseRtdbUrl, {
+  fetch(trackingSessionUrl(sessionId), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
-  }).catch((err) => console.warn("[liveLocationSharing] Firebase RTDB sync note:", err));
+  }).catch((err) => console.warn("[liveLocationSharing] Firebase RTDB sync error:", err));
+}
 
-  // 2. Sync to Backend GPS API
+/**
+ * Fetches the current live-location snapshot for a session from Firebase RTDB.
+ * Returns null on any failure or if the session has no data yet — callers must handle
+ * null explicitly rather than falling back to fabricated coordinates.
+ */
+export async function getLiveLocation(sessionId: string): Promise<LiveLocationData | null> {
   try {
-    await fetch(`${API_BASE_URL}/api/v1/gps/ping`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        session_id: sessionId,
-        user_name: userName,
-        latitude: coords.lat,
-        longitude: coords.lng,
-        battery_level: 88,
-        is_active: active,
-        updated_at: Date.now(),
-      }),
-    });
+    const response = await fetch(trackingSessionUrl(sessionId));
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    if (!data) return null;
+
+    return {
+      sessionId,
+      userName: data.userName ?? "User",
+      lat: data.lat,
+      lng: data.lng,
+      updatedAt: data.updatedAt,
+      batteryLevel: data.batteryLevel,
+      active: data.active ?? false,
+    };
   } catch (err) {
-    console.warn("[liveLocationSharing] push error:", err);
+    console.warn("[liveLocationSharing] getLiveLocation error:", err);
+    return null;
   }
 }

@@ -18,61 +18,67 @@ import { NavBar } from "../components/ds/NavBar";
 import { Badge } from "../components/ds/Badge";
 import { AppButton } from "../components/ds/AppButton";
 import { LiveTrackingMapView, LatLng } from "../components/app/LiveTrackingMapView";
-import { API_BASE_URL } from "../api/config";
+import { getLiveLocation, stopLiveLocationSharing } from "../services/liveLocationSharing";
+import { locationService } from "../modules/location/services/locationService";
 import { getPublicTrackingUrl } from "../utils/trackingUrl";
 
 export function FamilyLiveTrackingScreen({
   sessionId = "trk_demo",
+  destinationName = "Home · Nandi Layout",
+  destinationLat = 12.985,
+  destinationLng = 77.605,
   onBack,
   onEmergencyAlert,
 }: {
   sessionId?: string;
+  destinationName?: string;
+  destinationLat?: number;
+  destinationLng?: number;
   onBack?: () => void;
   onEmergencyAlert?: () => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState("Priya Sharma");
   const [userLocation, setUserLocation] = useState<LatLng>({ lat: 12.9716, lng: 77.5946 });
-  const [destinationName, setDestinationName] = useState("Home · Nandi Layout");
-  const [destinationLocation, setDestinationLocation] = useState<LatLng>({ lat: 12.985, lng: 77.605 });
   const [distanceKm, setDistanceKm] = useState(3.4);
   const [etaMinutes, setEtaMinutes] = useState(14);
   const [batteryLevel, setBatteryLevel] = useState(88);
   const [lastUpdated, setLastUpdated] = useState("Just now");
   const [isLiveActive, setIsLiveActive] = useState(true);
+  const [signalLost, setSignalLost] = useState(false);
   const [userConfirmedSafe, setUserConfirmedSafe] = useState(false);
+  const destinationLocation: LatLng = { lat: destinationLat, lng: destinationLng };
 
-  // Fetch live tracking feed from backend every 4 seconds
+  // Fetch live tracking feed from Firebase RTDB every 4 seconds
   useEffect(() => {
     let interval: any;
 
     const fetchLiveFeed = async () => {
       if (userConfirmedSafe) return;
 
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/v1/gps/session/${sessionId}`);
-        if (response.ok) {
-          const data = await response.json();
-          setUserName(data.user_name || "User");
-          setUserLocation({ lat: data.current_lat, lng: data.current_lng });
-          setDestinationName(data.destination_name || "Destination");
-          setDestinationLocation({ lat: data.destination_lat, lng: data.destination_lng });
-          setDistanceKm(data.distance_remaining_km ?? 3.4);
-          setEtaMinutes(data.eta_minutes ?? 14);
-          setBatteryLevel(data.battery_level ?? 85);
-          setIsLiveActive(data.is_active ?? true);
-          setLastUpdated(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-        }
-      } catch (err) {
-        // Fallback simulated movements for offline mode / demo testing
-        setUserLocation((prev) => ({
-          lat: prev.lat + (Math.random() - 0.4) * 0.0003,
-          lng: prev.lng + (Math.random() - 0.4) * 0.0003,
-        }));
-        setLastUpdated(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-      } finally {
-        setLoading(false);
+      const data = await getLiveLocation(sessionId);
+      if (data) {
+        setSignalLost(false);
+        setUserName(data.userName || "User");
+        setUserLocation({ lat: data.lat, lng: data.lng });
+        setBatteryLevel(data.batteryLevel ?? 85);
+        setIsLiveActive(data.active);
+        setLastUpdated(
+          new Date(data.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+        );
+
+        const remDist = locationService.calculateDistanceKm(
+          data.lat,
+          data.lng,
+          destinationLocation.lat,
+          destinationLocation.lng
+        );
+        setDistanceKm(remDist);
+        setEtaMinutes(locationService.calculateETA(remDist, 15));
+      } else {
+        setSignalLost(true);
       }
+      setLoading(false);
     };
 
     fetchLiveFeed();
@@ -84,14 +90,7 @@ export function FamilyLiveTrackingScreen({
   const handleStopLiveTracking = async () => {
     setUserConfirmedSafe(true);
     setIsLiveActive(false);
-
-    try {
-      await fetch(`${API_BASE_URL}/api/v1/gps/session/${sessionId}/stop`, {
-        method: "POST",
-      });
-    } catch {
-      /* ignore */
-    }
+    await stopLiveLocationSharing(sessionId);
   };
 
   const handleShareTrackingLink = async () => {
@@ -120,7 +119,9 @@ export function FamilyLiveTrackingScreen({
             <Badge tone="success">4s Auto-Sync</Badge>
           </View>
           <Text style={styles.userInfoTitle}>Tracking {userName}</Text>
-          <Text style={styles.lastSyncText}>Last updated: {lastUpdated}</Text>
+          <Text style={styles.lastSyncText}>
+            {signalLost ? `Location signal lost — last seen at ${lastUpdated}` : `Last updated: ${lastUpdated}`}
+          </Text>
         </View>
 
         {/* OpenStreetMap Component */}

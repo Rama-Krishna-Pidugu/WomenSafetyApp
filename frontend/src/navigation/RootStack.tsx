@@ -95,7 +95,12 @@ export type RootStackParamList = {
   FaceRegistration: undefined;
   VoiceTriggerConfig: undefined;
   VoiceTraining: undefined;
-  FamilyLiveTracking: { sessionId?: string } | undefined;
+  FamilyLiveTracking: {
+    sessionId?: string;
+    destinationName?: string;
+    destinationLat?: number;
+    destinationLng?: number;
+  } | undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -493,6 +498,9 @@ function FamilyLiveTrackingRouteScreen({ navigation, route }: P<"FamilyLiveTrack
   return (
     <FamilyLiveTrackingScreen
       sessionId={route.params?.sessionId}
+      destinationName={route.params?.destinationName}
+      destinationLat={route.params?.destinationLat}
+      destinationLng={route.params?.destinationLng}
       onBack={() => navigation.goBack()}
       onEmergencyAlert={() => navigation.navigate("Sos", { state: "active" })}
     />
@@ -604,7 +612,7 @@ function MobileApp() {
           {({ navigation }: P<"SafeRoute">) => (
             <SafeRouteScreen
               onBack={() => navigation.goBack()}
-              onOpenFamilyTracking={() => navigation.navigate("FamilyLiveTracking")}
+              onOpenFamilyTracking={(params) => navigation.navigate("FamilyLiveTracking", params)}
             />
           )}
         </Stack.Screen>

@@ -2,6 +2,12 @@
 .DS_Store
 *.swp
 Thumbs.db
+~$*
+
+# ---- Local databases (dev DBs must never be committed - contain user/PII data) ----
+*.db
+*.sqlite
+*.sqlite3
 
 # ---- Secrets / env ----
 .env

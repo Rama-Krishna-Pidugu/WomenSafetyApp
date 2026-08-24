@@ -88,6 +88,7 @@ export function GeofenceSettingsModal({
                 </Text>
               </View>
               <Switch
+                testID="autoSendSmsSwitch"
                 value={config.autoSendSms}
                 onValueChange={(val) => updateSetting("autoSendSms", val)}
                 trackColor={{ false: colors.border, true: colors.primary }}

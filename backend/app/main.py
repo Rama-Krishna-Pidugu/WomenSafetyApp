@@ -45,17 +45,6 @@ app.add_middleware(
 
 app.include_router(api_v1_router, prefix=settings.API_V1_STR)
 
-from app.api.v1.gps.router import track_web_page
-
-@app.get("/track/{session_id}")
-async def external_track_page(session_id: str):
-    return await track_web_page(session_id)
-
-@app.get("/track.html")
-@app.get("/index.html")
-@app.get("/web")
-async def track_html_page(sessionId: str = "trk_demo"):
-    return await track_web_page(sessionId)
 @app.get("/")
 async def root():
     return {
