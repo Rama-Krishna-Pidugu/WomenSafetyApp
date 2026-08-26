@@ -40,7 +40,9 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./women_safety.db"
     SUPABASE_URL: Optional[str] = None
     SUPABASE_KEY: Optional[str] = None
-    APP_SESSION_SECRET: Optional[str] = None
+    # Sentry Error Tracking
+    SENTRY_DSN: Optional[str] = "https://beda47cfdbf07ea0d0b31194a15db38d@o4511977779036161.ingest.us.sentry.io/4511977828974592"
+    SENTRY_TRACES_SAMPLE_RATE: float = 1.0
 
     model_config = {
         "env_file": ".env",

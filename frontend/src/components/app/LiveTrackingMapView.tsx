@@ -209,16 +209,20 @@ export const LiveTrackingMapView = forwardRef<LiveTrackingMapViewRef, LiveTracki
   <script>
     var map = L.map('map', { zoomControl: false, attributionControl: false }).setView([${userLocation.lat}, ${userLocation.lng}], 15);
     
-    // High-contrast clean CartoDB Dark Matter tile layer with OpenStreetMap fallback
-    var darkTiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    // OpenStreetMap standard tile layer (100% Free, No API Key Required)
+    var osmTiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
-      subdomains: 'abcd',
+      attribution: '&copy; OpenStreetMap contributors'
     });
     
-    darkTiles.addTo(map);
+    osmTiles.addTo(map);
 
-    darkTiles.on('tileerror', function() {
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+    osmTiles.on('tileerror', function() {
+      // Fallback to Humanitarian OpenStreetMap
+      L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        subdomains: 'abc'
+      }).addTo(map);
     });
 
     // Custom user avatar & pulse marker

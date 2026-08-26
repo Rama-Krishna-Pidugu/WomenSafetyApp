@@ -20,18 +20,25 @@ async def register_face(
 ):
     """Register a trusted person's face for the authenticated user."""
 
-    if not image.content_type or not image.content_type.startswith("image/"):
-        raise HTTPException(
-            status_code=400,
-            detail="Uploaded file must be an image.",
-        )
-
     image_bytes = await image.read()
 
     if not image_bytes:
         raise HTTPException(
             status_code=400,
-            detail="Uploaded image is empty.",
+            detail="Uploaded image is empty. Please capture or select a valid photo.",
+        )
+
+    # Validate image format via content_type, magic bytes, or file extension
+    is_valid_image = (
+        (image.content_type and (image.content_type.startswith("image/") or image.content_type == "application/octet-stream"))
+        or image_bytes.startswith((b"\xff\xd8\xff", b"\x89PNG", b"RIFF", b"BM", b"\x00\x00\x00\x18ftyp", b"\x00\x00\x00\x1cftyp", b"\x00\x00\x00\x20ftyp"))
+        or (image.filename and image.filename.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".bmp")))
+    )
+
+    if not is_valid_image:
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded file must be a valid image (JPEG/PNG/WebP).",
         )
 
     try:
@@ -44,7 +51,7 @@ async def register_face(
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail="Face processing failed.",
+            detail=f"Face processing error: {exc}",
         ) from exc
 
     supabase = get_supabase()
@@ -171,18 +178,25 @@ async def verify_face(
 ):
     """Verify a captured face against the user's trusted faces."""
 
-    if not image.content_type or not image.content_type.startswith("image/"):
-        raise HTTPException(
-            status_code=400,
-            detail="Uploaded file must be an image.",
-        )
-
     image_bytes = await image.read()
 
     if not image_bytes:
         raise HTTPException(
             status_code=400,
-            detail="Uploaded image is empty.",
+            detail="Uploaded image is empty. Please capture or select a valid photo.",
+        )
+
+    # Validate image format via content_type, magic bytes, or file extension
+    is_valid_image = (
+        (image.content_type and (image.content_type.startswith("image/") or image.content_type == "application/octet-stream"))
+        or image_bytes.startswith((b"\xff\xd8\xff", b"\x89PNG", b"RIFF", b"BM", b"\x00\x00\x00\x18ftyp", b"\x00\x00\x00\x1cftyp", b"\x00\x00\x00\x20ftyp"))
+        or (image.filename and image.filename.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".bmp")))
+    )
+
+    if not is_valid_image:
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded file must be a valid image (JPEG/PNG/WebP).",
         )
 
     try:
@@ -195,7 +209,7 @@ async def verify_face(
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail="Face processing failed.",
+            detail=f"Face processing error: {exc}",
         ) from exc
 
     supabase = get_supabase()

@@ -24,7 +24,9 @@ import {
   KeyRound,
   Eye,
   EyeOff,
+  Bug,
 } from "lucide-react-native";
+import * as Sentry from "@sentry/react-native";
 import { colors, radii } from "../theme/tokens";
 import { AppButton } from "../components/ds/AppButton";
 import { Badge } from "../components/ds/Badge";
@@ -621,6 +623,28 @@ export function SettingsScreen({
           <Card style={styles.listCard}>
             <SettingRow icon={<Lock size={17} color={colors.primary} />} title="Data & privacy" subtitle="What we keep, and for how long" onPress={onPrivacy} />
             <SettingRow icon={<Trash2 size={17} color={colors.destructive} />} title="Delete account" subtitle="Removes everything, permanently" tone="danger" />
+          </Card>
+        </View>
+
+        <View style={styles.section}>
+          <SectionHeader title="Diagnostics & Debugging" />
+          <Card style={styles.listCard}>
+            <SettingRow
+              icon={<Bug size={17} color={colors.warning || colors.primary} />}
+              title="Trigger Sentry Test Error"
+              subtitle="Capture and transmit a test exception"
+              onPress={() => {
+                try {
+                  throw new Error("Test Sentry Error: Aegis React Native test exception triggered from Settings UI.");
+                } catch (error) {
+                  Sentry.captureException(error);
+                  Alert.alert(
+                    "Sentry Test Triggered",
+                    "A test exception has been captured and dispatched to your Sentry dashboard."
+                  );
+                }
+              }}
+            />
           </Card>
         </View>
       </ScrollView>

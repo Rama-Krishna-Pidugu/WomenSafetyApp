@@ -26,6 +26,10 @@ export class LocationService {
    */
   public async requestPermissions(): Promise<boolean> {
     try {
+      const current = await Location.getForegroundPermissionsAsync();
+      if (current.status === 'granted') {
+        return true;
+      }
       const { status } = await Location.requestForegroundPermissionsAsync();
       const granted = status === 'granted';
       logger.info(`Location permission status: [${status}]`);
@@ -43,13 +47,28 @@ export class LocationService {
     try {
       const hasPermission = await this.requestPermissions();
       if (!hasPermission) {
-        logger.warn('Location permission denied. Returning default fallback location.');
-        return this.getDefaultFallbackLocation();
+        logger.warn('Location permission denied. Returning cached or default fallback location.');
+        return this.lastKnownLocation || this.getDefaultFallbackLocation();
       }
 
-      const loc = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
+      // 1. Try fast last known position first (available immediately on device)
+      let loc: Location.LocationObject | null = null;
+      try {
+        loc = await Location.getLastKnownPositionAsync({});
+      } catch (e) {
+        // Fallback to active GPS fix
+      }
+
+      // 2. Query fresh GPS position
+      if (!loc) {
+        loc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+      }
+
+      if (!loc) {
+        return this.lastKnownLocation || this.getDefaultFallbackLocation();
+      }
 
       const coordinates: Coordinates = {
         latitude: loc.coords.latitude,
@@ -70,7 +89,7 @@ export class LocationService {
       return locationData;
     } catch (err) {
       logger.error('Error fetching current position:', err);
-      return this.getDefaultFallbackLocation();
+      return this.lastKnownLocation || this.getDefaultFallbackLocation();
     }
   }
 

@@ -26,9 +26,7 @@ class FaceRepository {
       "/api/v1/face/register",
       formData,
       {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
+        transformRequest: (data) => data,
       },
     );
 
@@ -58,9 +56,7 @@ class FaceRepository {
       "/api/v1/face/verify",
       formData,
       {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
+        transformRequest: (data) => data,
       },
     );
 

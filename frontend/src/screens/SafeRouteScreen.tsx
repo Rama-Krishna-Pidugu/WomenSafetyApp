@@ -101,7 +101,10 @@ export function SafeRouteScreen({
 }) {
   const [screenState, setScreenState] = useState<SafeRouteState>(initialState);
   const [pickedRouteId, setPickedRouteId] = useState("sr1");
-  const [userLocation, setUserLocation] = useState<LatLng>({ lat: 12.9716, lng: 77.5946 });
+  const initialLoc = locationService.getLastKnownLocation?.()?.coordinates;
+  const [userLocation, setUserLocation] = useState<LatLng>(
+    initialLoc ? { lat: initialLoc.latitude, lng: initialLoc.longitude } : { lat: 12.9716, lng: 77.5946 }
+  );
   const [destination, setDestination] = useState<LatLng>({ lat: 12.9850, lng: 77.6050 });
   const [destinationName, setDestinationName] = useState("Home · Nandi Layout");
   const [distanceKm, setDistanceKm] = useState<number>(4.2);

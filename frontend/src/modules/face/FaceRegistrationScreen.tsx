@@ -123,12 +123,17 @@ export function FaceRegistrationScreen({ onDone }: Props) {
         "Face Registered",
         `${trimmedName} has been added as a trusted person.`,
       );
-    } catch (error) {
+    } catch (error: any) {
       console.error("[FaceRegistration] Registration failed:", error);
+
+      const errorMessage =
+        error?.detail ||
+        error?.message ||
+        "The trusted face could not be registered. Please make sure your face is well-lit, centered, and try again.";
 
       Alert.alert(
         "Registration failed",
-        "The trusted face could not be registered. Please try again.",
+        errorMessage,
       );
     } finally {
       setSaving(false);

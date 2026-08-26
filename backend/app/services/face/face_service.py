@@ -109,28 +109,59 @@ class FaceService:
     def _detect_face(
         self,
         image: np.ndarray,
-    ) -> np.ndarray:
-        height, width = image.shape[:2]
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Detect the most prominent face in an image.
+        Supports multi-orientation rotation fallback for mobile camera photos.
+        Returns (aligned_image, best_face_data).
+        """
+        if self.detector is None or self.recognizer is None:
+            raise ValueError("Face recognition engine is not initialized on the server.")
 
-        self.detector.setInputSize((width, height))
+        # Scale down large mobile images to max 1024px for YuNet accuracy & performance
+        h, w = image.shape[:2]
+        max_dim = 1024
+        if max(h, w) > max_dim:
+            scale = max_dim / float(max(h, w))
+            image = cv2.resize(image, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
 
-        _, faces = self.detector.detect(image)
+        # Try natural orientation first, then 90-degree rotations for mobile camera EXIF orientation differences
+        orientations = [
+            (image, 0),
+            (cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE), 90),
+            (cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE), 270),
+            (cv2.rotate(image, cv2.ROTATE_180), 180),
+        ]
 
-        if faces is None or len(faces) == 0:
+        best_face = None
+        best_image = image
+        best_score = -1.0
+
+        for current_img, _ in orientations:
+            cur_h, cur_w = current_img.shape[:2]
+            self.detector.setInputSize((cur_w, cur_h))
+            _, faces = self.detector.detect(current_img)
+
+            if faces is not None and len(faces) > 0:
+                # Find face with largest area * confidence score
+                candidate = max(
+                    faces,
+                    key=lambda f: float(f[2] * f[3]) * float(f[-1] if len(f) > 4 else 1.0),
+                )
+                score = float(candidate[2] * candidate[3])
+                if score > best_score:
+                    best_score = score
+                    best_face = candidate
+                    best_image = current_img
+                # If high-confidence face found, break early
+                break
+
+        if best_face is None:
             raise ValueError(
-                "No face detected in the uploaded image."
+                "No face detected in the photo. Please ensure your face is well-lit, centered, and facing the camera directly."
             )
 
-        # Choose the largest detected face.
-        #
-        # YuNet returns:
-        # [x, y, width, height, landmarks..., score]
-        best_face = max(
-            faces,
-            key=lambda face: float(face[2] * face[3]),
-        )
-
-        return best_face
+        return best_image, best_face
 
     # -----------------------------------------------------------------------
     # Embedding generation
@@ -148,7 +179,7 @@ class FaceService:
 
         image = self._decode_image(image_bytes)
 
-        face = self._detect_face(image)
+        image, face = self._detect_face(image)
 
         # OpenCV performs the required face alignment internally.
         aligned_face = self.recognizer.alignCrop(

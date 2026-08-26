@@ -3,6 +3,7 @@ import { IncomingCallScreen } from "../screens/IncomingCallScreen";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Platform } from "react-native";
 import { NavigationContainer, useNavigationContainerRef } from "@react-navigation/native";
+import * as Sentry from "@sentry/react-native";
 import * as Linking from "expo-linking";
 import { createNativeStackNavigator, type NativeStackScreenProps } from "@react-navigation/native-stack";
 
@@ -605,7 +606,7 @@ function MobileApp() {
   };
 
   return (
-    <NavigationContainer ref={navigationRef} linking={linking}>
+    <Sentry.NavigationContainer ref={navigationRef} linking={linking}>
       <Stack.Navigator initialRouteName="Splash" screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Splash" component={SplashRouteScreen} />
         <Stack.Screen name="Onboarding" component={OnboardingRouteScreen} />
@@ -654,7 +655,7 @@ function MobileApp() {
         <Stack.Screen name="FakeCall" component={FakeCallRouteScreen} />
         <Stack.Screen name="IncomingCall" component={IncomingCallRouteScreen} />
       </Stack.Navigator>
-    </NavigationContainer>
+    </Sentry.NavigationContainer>
   );
 }
 

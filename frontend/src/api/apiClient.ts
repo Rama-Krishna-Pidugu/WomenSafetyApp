@@ -30,6 +30,11 @@ apiClient.interceptors.request.use(
     const fullUrl = `${config.baseURL || ''}${config.url || ''}`;
     console.log(`🚀 [API Request Outgoing] [${config.method?.toUpperCase()}] Full URL: ${fullUrl}`);
 
+    // When uploading FormData (e.g. face images, evidence), delete Content-Type so React Native / Axios adds multipart/form-data with the correct boundary
+    if (config.data instanceof FormData || (config.data && typeof (config.data as any).getParts === 'function')) {
+      delete config.headers['Content-Type'];
+    }
+
     try {
       const token = await firebaseAuthService.getIdToken();
       if (token) {

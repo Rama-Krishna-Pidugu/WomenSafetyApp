@@ -40,6 +40,7 @@ import {
   NormalizedEmergencyService,
 } from "../services/emergency";
 import * as Location from "expo-location";
+import { locationService } from "../modules/location/services/locationService";
 
 export type NearbyState = "list" | "map" | "loading";
 
@@ -62,14 +63,18 @@ const EMERGENCY_HOTLINES = [
 const DEFAULT_USER_LOCATION: LatLng = { lat: 12.9716, lng: 77.5946 };
 
 export function NearbyHelpScreen({
-  state = "list",
+  state: initialState = "list",
   onBack,
+  onNavigateHome,
+  onNavigateMap,
 }: {
   state?: NearbyState;
   onBack?: () => void;
+  onNavigateHome?: () => void;
+  onNavigateMap?: () => void;
 }) {
-  const [selectedCategory, setSelectedCategory] = useState<"ALL" | EmergencyServiceCategory>("ALL");
-  const [view, setView] = useState<"list" | "map">(state === "map" ? "map" : "list");
+  const [view, setView] = useState<"list" | "map">(initialState === "map" ? "map" : "list");
+  const [selectedCategory, setSelectedCategory] = useState<EmergencyServiceCategory | "ALL">("ALL");
   const [userLocation, setUserLocation] = useState<LatLng>(DEFAULT_USER_LOCATION);
   const [services, setServices] = useState<NormalizedEmergencyService[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,14 +83,9 @@ export function NearbyHelpScreen({
   useEffect(() => {
     (async () => {
       try {
-        if (typeof Location?.requestForegroundPermissionsAsync === "function") {
-          const { status } = await Location.requestForegroundPermissionsAsync();
-          if (status === "granted") {
-            const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-            if (loc?.coords) {
-              setUserLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
-            }
-          }
+        const loc = await locationService.getCurrentLocation();
+        if (loc?.coordinates) {
+          setUserLocation({ lat: loc.coordinates.latitude, lng: loc.coordinates.longitude });
         }
       } catch (err) {
         console.warn("[NearbyHelpScreen] Location acquire error:", err);

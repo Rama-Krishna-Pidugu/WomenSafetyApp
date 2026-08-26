@@ -103,7 +103,16 @@
       "@react-native-firebase/auth",
       "./plugins/withSafetyFeatures",
       "./plugins/withFakeCallTile.js",
-      "expo-audio"
+      "expo-audio",
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "project": "react-native",
+          "organization": "womensafetyapp",
+          "disableAutoUpload": true
+        }
+      ]
     ]
   }
 }

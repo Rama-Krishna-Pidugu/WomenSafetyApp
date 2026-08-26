@@ -1,3 +1,4 @@
+import sentry_sdk
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -9,6 +10,14 @@ from app.db.base import Base
 from app.db.session import engine
 from app.api import api_v1_router
 from app.middleware import RequestLoggingMiddleware
+
+if settings.SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        send_default_pii=True,
+        traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
+    )
+    logger.info("Sentry SDK initialized successfully.")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -44,6 +53,12 @@ app.add_middleware(
 )
 
 app.include_router(api_v1_router, prefix=settings.API_V1_STR)
+
+@app.get("/sentry-debug")
+async def trigger_error():
+    zero = int("0")
+    division_by_zero = 1 / zero
+    return {"result": division_by_zero}
 
 @app.get("/")
 async def root():
