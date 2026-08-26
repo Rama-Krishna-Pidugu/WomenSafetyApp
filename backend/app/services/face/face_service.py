@@ -4,8 +4,12 @@ import io
 from pathlib import Path
 from typing import Any
 
-import cv2
-import numpy as np
+try:
+    import cv2
+    import numpy as np
+except ImportError:
+    cv2 = None
+    np = None
 
 
 # ---------------------------------------------------------------------------
@@ -47,34 +51,38 @@ class FaceService:
     """
 
     def __init__(self) -> None:
-        if not SFACE_MODEL_PATH.exists():
-            raise FileNotFoundError(
-                f"SFace model not found at: {SFACE_MODEL_PATH}"
+        self.detector = None
+        self.recognizer = None
+
+        if cv2 is None:
+            print("[FaceService] OpenCV (cv2) not available - face recognition disabled in dev mode")
+            return
+
+        if not SFACE_MODEL_PATH.exists() or not YUNET_MODEL_PATH.exists():
+            print("[FaceService] Model files not found - face recognition disabled in dev mode")
+            return
+
+        try:
+            # YuNet face detector
+            self.detector = cv2.FaceDetectorYN.create(
+                str(YUNET_MODEL_PATH),
+                "",
+                (320, 320),
+                0.5,
+                0.3,
+                5000,
             )
 
-        if not YUNET_MODEL_PATH.exists():
-            raise FileNotFoundError(
-                f"YuNet model not found at: {YUNET_MODEL_PATH}"
+            # OpenCV's native SFace recognizer
+            self.recognizer = cv2.FaceRecognizerSF.create(
+                str(SFACE_MODEL_PATH),
+                "",
             )
 
-        # YuNet face detector
-        self.detector = cv2.FaceDetectorYN.create(
-            str(YUNET_MODEL_PATH),
-            "",
-            (320, 320),
-            0.5,
-            0.3,
-            5000,
-        )
-
-        # OpenCV's native SFace recognizer
-        self.recognizer = cv2.FaceRecognizerSF.create(
-            str(SFACE_MODEL_PATH),
-            "",
-        )
-
-        print("[FaceService] YuNet loaded")
-        print("[FaceService] SFace loaded")
+            print("[FaceService] YuNet loaded")
+            print("[FaceService] SFace loaded")
+        except Exception as e:
+            print(f"[FaceService] Model init error: {e}")
 
     # -----------------------------------------------------------------------
     # Image decoding

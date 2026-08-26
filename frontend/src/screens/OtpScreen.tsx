@@ -60,6 +60,7 @@ export function OtpScreen({
           : "";
 
   const [code, setCode] = useState(initial);
+  const [hasExistingProfile, setHasExistingProfile] = useState(false);
   const [phase, setPhase] = useState<"idle" | "loading" | "error" | "success">(
     state === "error" ? "error" : state === "loading" ? "loading" : state === "success" ? "success" : "idle",
   );
@@ -85,8 +86,10 @@ export function OtpScreen({
         await activeConfirmation.confirm(code);
         clearCurrentProfile();
         const profile = await getMyProfile(true);
+        const exists = !!profile;
+        setHasExistingProfile(exists);
         setPhase("success");
-        setTimeout(() => onVerified?.(!!profile), 1400);
+        setTimeout(() => onVerified?.(exists), 1400);
       } else {
         setPhase("error");
         Alert.alert(
@@ -106,7 +109,11 @@ export function OtpScreen({
         <View style={styles.successCenter}>
           <SuccessCheck />
           <Text style={styles.successTitle}>Number verified</Text>
-          <Text style={styles.successBody}>Let's finish setting up your safety profile.</Text>
+          <Text style={styles.successBody}>
+            {hasExistingProfile
+              ? "Welcome back! Profile found — taking you to Home..."
+              : "Let's finish setting up your safety profile."}
+          </Text>
         </View>
       </SafeAreaView>
     );

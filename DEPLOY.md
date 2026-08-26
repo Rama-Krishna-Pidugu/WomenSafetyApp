@@ -91,8 +91,11 @@ backend**, not just its own endpoints — this has bitten us before (see below).
 - **Function URL returns 403** (`AccessDeniedException`) for every request, even though the
   resource policy explicitly allows anonymous `lambda:InvokeFunctionUrl` and the account
   isn't in an AWS Organization (so no SCP is involved). Root cause not yet found — treat the
-  Function URL as unreliable until this is debugged; use API Gateway or a direct `lambda
-  invoke` in the meantime.
+  Function URL as unreliable until this is debugged. **The frontend (`frontend/.env`,
+  `EXPO_PUBLIC_API_URL`) points at API Gateway instead**
+  (`https://ywrqvm9zn0.execute-api.ap-south-1.amazonaws.com`), which is public and healthy —
+  use that for any client that needs to reach the deployed backend, and for health checks,
+  until the Function URL is fixed.
 - **Secrets in plaintext Lambda env vars** — `FIREBASE_SERVICE_ACCOUNT_JSON` (private key
   included) and `SUPABASE_KEY` (service-role) are visible to anyone who can call
   `lambda:GetFunctionConfiguration` on this function. Worth moving to Secrets Manager /

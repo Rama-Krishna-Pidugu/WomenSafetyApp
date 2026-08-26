@@ -11,7 +11,8 @@ class EmergencyPackage : ReactPackage {
             EmergencyModule(reactContext),
             SOSModule(reactContext),
             ShakeModule(reactContext),
-            SafetyForegroundModule(reactContext)
+            SafetyForegroundModule(reactContext),
+            FakeCallModule(reactContext)
         )
     }
 

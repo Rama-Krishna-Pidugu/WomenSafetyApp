@@ -419,7 +419,7 @@ export function SafeRouteScreen({
           >
             <Building2 size={13} color={geofenceConfig.showPolice ? "#3B82F6" : colors.mutedForeground} />
             <Text style={[styles.chipText, geofenceConfig.showPolice && { color: "#3B82F6" }]}>
-              Police ({activeSafeSpots.filter((s) => s.type === "police").length})
+              Police ({allSafeSpots.filter((s) => s.type === "police").length})
             </Text>
           </Pressable>
 
@@ -429,7 +429,17 @@ export function SafeRouteScreen({
           >
             <Ambulance size={13} color={geofenceConfig.showHospitals ? "#EF4444" : colors.mutedForeground} />
             <Text style={[styles.chipText, geofenceConfig.showHospitals && { color: "#EF4444" }]}>
-              Hospitals ({activeSafeSpots.filter((s) => s.type === "hospital").length})
+              Hospitals ({allSafeSpots.filter((s) => s.type === "hospital").length})
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={[styles.safeChip, geofenceConfig.showShelters && { borderColor: "#8B5CF6", backgroundColor: "rgba(139, 92, 246, 0.15)" }]}
+            onPress={() => setGeofenceConfig((c) => ({ ...c, showShelters: !c.showShelters }))}
+          >
+            <Shield size={13} color={geofenceConfig.showShelters ? "#8B5CF6" : colors.mutedForeground} />
+            <Text style={[styles.chipText, geofenceConfig.showShelters && { color: "#8B5CF6" }]}>
+              Shelters ({allSafeSpots.filter((s) => s.type === "shelter").length})
             </Text>
           </Pressable>
         </View>

@@ -33,6 +33,17 @@ import { API_BASE_URL } from "../api/config";
 import { getPublicTrackingUrl } from "../utils/trackingUrl";
 import { startLiveLocationSharing, stopLiveLocationSharing } from "./liveLocationSharing";
 import * as behaviorAnalysisService from "./behaviorAnalysisService";
+import {
+  startSosAudioRecording,
+  stopSosAudioRecording,
+  syncAudioEvidenceToCloud,
+} from "./audioRecordingService";
+import {
+  startSosPhotoCapture,
+  startSosVideoRecording,
+  stopSosVideoRecording,
+  syncPendingEvidenceQueue,
+} from "./photoEvidenceService";
 
 // ──────────────────────────────────────────────────────────────
 // Types
@@ -416,6 +427,48 @@ export async function triggerSOS(source: SOSTriggerSource): Promise<string> {
   await setupNotificationChannel();
   await showSOSActiveNotification(incidentId);
 
+  // ── Step 7.5: Module 6 & 7 Automatic Audio, Photo & Video Evidence ───
+  try {
+    const audioUri = await startSosAudioRecording(incidentId);
+    if (audioUri) {
+      await appendLog(incidentId, "AUDIO_STARTED", {
+        uri: audioUri,
+        startedAt: Date.now(),
+      });
+    }
+  } catch (audioErr) {
+    console.warn("[sosOrchestrator] Audio recording init error:", audioErr);
+  }
+
+  try {
+    const photos = await startSosPhotoCapture(incidentId);
+    if (photos.length > 0) {
+      await appendLog(incidentId, "PHOTO_CAPTURED", {
+        count: photos.length,
+        fileName: photos[0]?.fileName,
+        frontSha256: photos[0]?.sha256,
+        backSha256: photos[1]?.sha256,
+        uploadStatus: "PENDING_UPLOAD",
+        capturedAt: Date.now(),
+      });
+    }
+  } catch (photoErr) {
+    console.warn("[sosOrchestrator] Photo evidence capture error:", photoErr);
+  }
+
+  try {
+    const videoUri = await startSosVideoRecording(incidentId);
+    if (videoUri) {
+      await appendLog(incidentId, "VIDEO_STARTED", {
+        uri: videoUri,
+        uploadStatus: "PENDING_UPLOAD",
+        startedAt: Date.now(),
+      });
+    }
+  } catch (videoErr) {
+    console.warn("[sosOrchestrator] Video recording start error:", videoErr);
+  }
+
   // ── Step 8: Start 4.5s live location watch & live SMS updates ───
   let lastSmsTimestamp = Date.now();
   void startLiveLocationSharing(incidentId);
@@ -501,6 +554,39 @@ export async function cancelSOS(
   void stopLiveLocationSharing(incidentId);
   // Module 18: incident is ending, clear the behavior-analysis buffer.
   behaviorAnalysisService.reset();
+
+  // Module 6 & 7: Stop audio/video recording & sync to cloud evidence
+  try {
+    const audioResult = await stopSosAudioRecording();
+    if (audioResult) {
+      await appendLog(incidentId, "AUDIO_STOPPED", {
+        durationSeconds: audioResult.durationSeconds,
+        sizeBytes: audioResult.sizeBytes,
+        tamperSeal: audioResult.tamperSeal,
+      });
+      // Best-effort background upload
+      void syncAudioEvidenceToCloud(audioResult, incidentId);
+    }
+  } catch (audioErr) {
+    console.warn("[sosOrchestrator] Audio recording stop error:", audioErr);
+  }
+
+  try {
+    const videoResult = await stopSosVideoRecording();
+    if (videoResult) {
+      await appendLog(incidentId, "VIDEO_STOPPED", {
+        durationSeconds: videoResult.durationSeconds,
+        sizeBytes: videoResult.sizeBytes,
+        sha256: videoResult.sha256,
+        uploadStatus: "PENDING_UPLOAD",
+      });
+    }
+  } catch (videoErr) {
+    console.warn("[sosOrchestrator] Video recording stop error:", videoErr);
+  }
+
+  // Trigger eventual sync of pending local evidence
+  void syncPendingEvidenceQueue();
 
   // Stop live location tracking
   if (locationWatcher) {

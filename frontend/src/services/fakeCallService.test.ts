@@ -1,48 +1,81 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { fakeCallService, DEFAULT_FAKE_CALL_CONFIG } from './fakeCallService';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { NativeModules, Platform } from "react-native";
+import { fakeCallService, DEFAULT_FAKE_CALL_CONFIG } from "./fakeCallService";
 
-jest.mock('@react-native-async-storage/async-storage', () => ({
+jest.mock("@react-native-async-storage/async-storage", () => ({
   getItem: jest.fn(),
   setItem: jest.fn(),
 }));
 
-describe('fakeCallService', () => {
+describe("fakeCallService (Native Quick Settings Tile & Background Bridge)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    NativeModules.FakeCallModule = {
+      saveNativeConfig: jest.fn().mockResolvedValue(true),
+      getNativeConfig: jest.fn().mockResolvedValue({
+        callerName: "Mom",
+        phoneNumber: "+91 98765 43210",
+        ringtone: "Marimba",
+        vibrate: true,
+        autoPlayVoice: true,
+        delaySeconds: 120,
+        isScheduled: false,
+        enabled: true,
+      }),
+      scheduleFakeCall: jest.fn().mockResolvedValue(true),
+      cancelScheduledFakeCall: jest.fn().mockResolvedValue(true),
+      triggerImmediateFakeCall: jest.fn().mockResolvedValue(true),
+    };
   });
 
-  it('should return DEFAULT_FAKE_CALL_CONFIG if no config is stored', async () => {
-    (AsyncStorage.getItem as jest.Mock).mockResolvedValueOnce(null);
+  it("returns native config when available on Android", async () => {
+    Platform.OS = "android";
     const config = await fakeCallService.getConfig();
-    expect(config).toEqual(DEFAULT_FAKE_CALL_CONFIG);
+    expect(config.callerName).toBe("Mom");
+    expect(config.delaySeconds).toBe(120);
+    expect(config.delayMinutes).toBe(2);
   });
 
-  it('should backfill delayMinutes to 0 if it is missing from stored config', async () => {
-    const oldConfig = {
-      callerName: 'Dad',
-      ringtone: 'Silent',
+  it("saves config to both AsyncStorage and Android Native SharedPreferences", async () => {
+    Platform.OS = "android";
+    const newConfig = {
+      callerName: "Dad",
+      phoneNumber: "+91 98765 43211",
+      ringtone: "Classic",
       vibrate: false,
-      autoPlayVoice: false,
-      // Missing delayMinutes
+      autoPlayVoice: true,
+      delayMinutes: 1,
+      delaySeconds: 60,
+      enabled: true,
     };
-    (AsyncStorage.getItem as jest.Mock).mockResolvedValueOnce(JSON.stringify(oldConfig));
-    
-    const config = await fakeCallService.getConfig();
-    expect(config.delayMinutes).toBe(0);
-    expect(config.callerName).toBe('Dad');
+
+    await fakeCallService.saveConfig(newConfig);
+
+    expect(AsyncStorage.setItem).toHaveBeenCalled();
+    expect(NativeModules.FakeCallModule.saveNativeConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        callerName: "Dad",
+        delaySeconds: 60,
+        ringtone: "Classic",
+      })
+    );
   });
 
-  it('should use stored delayMinutes if present', async () => {
-    const storedConfig = {
-      callerName: 'Mom',
-      ringtone: 'Marimba',
-      vibrate: true,
-      autoPlayVoice: true,
-      delayMinutes: 5,
-    };
-    (AsyncStorage.getItem as jest.Mock).mockResolvedValueOnce(JSON.stringify(storedConfig));
-    
-    const config = await fakeCallService.getConfig();
-    expect(config.delayMinutes).toBe(5);
+  it("schedules fake call via native AlarmManager bridge", async () => {
+    Platform.OS = "android";
+    await fakeCallService.scheduleFakeCall(120);
+    expect(NativeModules.FakeCallModule.scheduleFakeCall).toHaveBeenCalledWith(120);
+  });
+
+  it("cancels scheduled fake call via native AlarmManager bridge", async () => {
+    Platform.OS = "android";
+    await fakeCallService.cancelScheduledFakeCall();
+    expect(NativeModules.FakeCallModule.cancelScheduledFakeCall).toHaveBeenCalled();
+  });
+
+  it("triggers immediate fake call via native bridge", async () => {
+    Platform.OS = "android";
+    await fakeCallService.triggerImmediateFakeCall();
+    expect(NativeModules.FakeCallModule.triggerImmediateFakeCall).toHaveBeenCalled();
   });
 });

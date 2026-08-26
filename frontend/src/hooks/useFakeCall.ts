@@ -64,11 +64,7 @@ export function useFakeCall() {
     setError(null);
 
     try {
-      await fakeCallService.triggerInstantCall({
-        caller: targetProfile,
-        voicePresetId: targetProfile.voicePresetId || 'female_friendly',
-        isInstant: true,
-      });
+      await fakeCallService.triggerImmediateFakeCall();
 
       setCallState({
         isCallActive: true,
@@ -95,10 +91,7 @@ export function useFakeCall() {
     setError(null);
 
     try {
-      await fakeCallService.scheduleFakeCall({
-        callerId: targetProfile.id,
-        delaySeconds,
-      });
+      await fakeCallService.scheduleFakeCall(delaySeconds);
 
       const triggerTimestamp = Date.now() + delaySeconds * 1000;
       setCallState((prev) => ({

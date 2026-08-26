@@ -16,7 +16,8 @@ export const API_ENDPOINTS = {
   EMERGENCY_PRESIGNED_URL: '/api/v1/emergency/presigned-url',
   EMERGENCY_HISTORY: '/api/v1/emergency/history',
 
-  // Incident Timeline — Module 19 (emergency-service/app/routers/incidents.py)
+  // Incident Timeline — Module 19 (Incident Timeline System)
+  INCIDENTS: '/api/v1/incidents',
   EMERGENCY_INCIDENTS_SYNC: '/api/v1/emergency/incidents/sync',
   EMERGENCY_INCIDENTS_HISTORY: '/api/v1/emergency/incidents/history',
 

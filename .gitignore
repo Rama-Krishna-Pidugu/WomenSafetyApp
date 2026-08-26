@@ -34,3 +34,6 @@ yarn-error.*
 
 .idea/
 backend/credentials/firebase-service-account.json
+# ---- Agent & Tooling Artifacts ----
+.agents/
+.claude/

@@ -38,27 +38,6 @@ async def post_emergency_alert(payload: Dict[str, Any]):
         memory_incidents_store.append(incident)
         return {"status": "success", "message": "Emergency Alert Dispatched (Dev Mode)", "data": [incident]}
 
-@router.post("/alert", status_code=status.HTTP_201_CREATED)
-async def post_emergency_alert(payload: Dict[str, Any]):
-    """
-    Receive real-time emergency alert payload from mobile client.
-    """
-    supabase = get_supabase()
-    if supabase is not None:
-        try:
-            response = supabase.table("sos_incidents").insert(payload).execute()
-            return {"status": "success", "message": "Emergency Alert Logged", "data": response.data}
-        except Exception as err:
-            return {"status": "success", "message": "Logged locally", "data": payload}
-    else:
-        incident = {
-            "id": f"sos-alert-{len(memory_incidents_store) + 1}",
-            "payload": payload,
-            "status": "DISPATCHED"
-        }
-        memory_incidents_store.append(incident)
-        return {"status": "success", "message": "Emergency Alert Dispatched (Dev Mode)", "data": [incident]}
-
 @router.post("/contacts", status_code=status.HTTP_201_CREATED)
 async def add_emergency_contact(payload: EmergencyContactCreate):
     supabase = get_supabase()

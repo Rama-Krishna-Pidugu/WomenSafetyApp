@@ -49,7 +49,7 @@ import { AdminIncidentsScreen } from "../screens/AdminIncidentsScreen";
 import { VoiceTriggerConfigScreen, VoiceTrainingScreen } from "../modules/voice";
 import { loadAdminSession, adminLogout } from "../data/adminAuth";
 import { type TabKey } from "../components/app/BottomNav";
-import { saveProfile, clearCurrentProfile } from "../services/profileService";
+import { saveProfile, clearCurrentProfile, getMyProfile } from "../services/profileService";
 import { contactStorageService } from "../services/contactStorageService";
 import { API_BASE_URL } from "../api/config";
 import { getAuthHeader, setPhoneConfirmation, getPhoneConfirmation } from "../services/firebaseConfig";
@@ -139,7 +139,14 @@ function LoginRouteScreen({ navigation }: P<"Login">) {
   return (
     <LoginScreen
       onBack={() => navigation.goBack()}
-      onLoggedIn={() => navigation.replace("Home")}
+      onLoggedIn={async () => {
+        const profile = await getMyProfile(true);
+        if (profile) {
+          navigation.replace("Home");
+        } else {
+          navigation.replace("Setup");
+        }
+      }}
       onUsePhoneOtp={() => navigation.replace("Phone")}
     />
   );
@@ -326,6 +333,8 @@ function HomeRouteScreen({ navigation }: P<"Home">) {
       onAssistant={() => navigation.navigate("Assistant")}
       onQuickAction={(action: string) => {
         if (action === "Safe Route") navigation.navigate("SafeRoute");
+        else if (action === "Live Map") navigation.navigate("SafeRoute");
+        else if (action === "Share Live") navigation.navigate("FamilyLiveTracking", {});
         else if (action === "Nearby Police" || action === "Hospitals") navigation.navigate("NearbyHelp");
         else if (action === "AI Assistant") navigation.navigate("Assistant");
         else if (action === "Report Area") navigation.navigate("Report");
@@ -334,10 +343,6 @@ function HomeRouteScreen({ navigation }: P<"Home">) {
         else if (action === "Register Face") navigation.navigate("FaceRegistration");
 
         else if (action === "Voice SOS") navigation.navigate("VoiceTriggerConfig");
-        else if (action === "Fake Call") navigation.navigate("IncomingCall");
-      }}
-      onQuickActionLongPress={(action: string) => {
-        if (action === "Fake Call") navigation.navigate("FakeCall");
       }}
       onQuickActionLongPress={(action: string) => {
         if (action === "Fake Call") navigation.navigate("FakeCall");
@@ -582,8 +587,16 @@ function MobileApp() {
     return () => subscription.remove();
   }, [navigationRef]);
 
+  let prefixes = ["aegis://", "aegiswomensafety://"];
+  try {
+    const defaultUrl = Linking.createURL("/");
+    if (defaultUrl) prefixes.unshift(defaultUrl);
+  } catch {
+    // Fallback in test / node environments
+  }
+
   const linking = {
-    prefixes: [Linking.createURL("/"), "aegis://", "aegiswomensafety://"],
+    prefixes,
     config: {
       screens: {
         IncomingCall: "fakecall",

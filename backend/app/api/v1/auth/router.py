@@ -1,7 +1,13 @@
 from fastapi import APIRouter, HTTPException, Depends, status
 from app.schemas.auth import TokenResponse, LoginRequest, PasswordLoginRequest, SetPasswordRequest, PasswordStatusResponse
 from app.repositories.user_repository import UserRepository
-from app.core.security import create_app_session_token, get_current_firebase_uid, hash_password, verify_password
+from app.core.security import (
+    create_app_session_token,
+    get_current_firebase_identity,
+    get_current_firebase_uid,
+    hash_password,
+    verify_password,
+)
 from app.core.logging import logger
 
 router = APIRouter(prefix="/auth", tags=["Authentication Module"])
@@ -9,7 +15,37 @@ router = APIRouter(prefix="/auth", tags=["Authentication Module"])
 
 @router.post("/verify-token", response_model=TokenResponse)
 async def verify_id_token(payload: LoginRequest):
-    return TokenResponse(access_token="mock_access_token_jwt", user_id="user_mock_123")
+    """
+    Verifies a Firebase ID Token, generates a signed app session token,
+    and returns user profile details if registered.
+    """
+    token = payload.firebase_id_token.strip() if payload.firebase_id_token else ""
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="firebase_id_token is required.",
+        )
+
+    try:
+        identity = await get_current_firebase_identity(authorization=f"Bearer {token}")
+        uid = identity.uid
+    except HTTPException:
+        raise
+    except Exception as err:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid or expired Firebase ID token: {err}",
+        ) from err
+
+    user_repo = UserRepository()
+    user_record = user_repo.get_by_firebase_uid(uid)
+    safe_user = {k: v for k, v in user_record.items() if k != "password_hash"} if user_record else None
+
+    return TokenResponse(
+        access_token=create_app_session_token(uid),
+        user_id=uid,
+        user=safe_user,
+    )
 
 
 @router.post("/login", response_model=TokenResponse)

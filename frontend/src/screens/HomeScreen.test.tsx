@@ -1,6 +1,11 @@
 import { render, screen, fireEvent, act, cleanup } from "@testing-library/react-native";
 import { HomeScreen } from "./HomeScreen";
 
+// Mock the profileService to return a predictable name
+jest.mock("../services/profileService", () => ({
+  getMyProfile: jest.fn().mockResolvedValue({ full_name: "Test User", name: "Test" }),
+}));
+
 afterEach(() => {
   cleanup();
 });
@@ -9,7 +14,8 @@ describe("HomeScreen", () => {
   it("renders user greeting and status pill correctly", async () => {
     await render(<HomeScreen />);
     expect(screen.getByText("Good evening,")).toBeTruthy();
-    expect(screen.getByText("Aisha")).toBeTruthy();
+    // Dynamic name from mock profile
+    expect(await screen.findByText("Test")).toBeTruthy();
     expect(screen.getByText("You're in a safe area")).toBeTruthy();
   });
 
@@ -34,6 +40,8 @@ describe("HomeScreen", () => {
   it("renders quick actions grid items", async () => {
     await render(<HomeScreen />);
     expect(screen.getByText("Safe Route")).toBeTruthy();
+    expect(screen.getByText("Live Map")).toBeTruthy();
+    expect(screen.getByText("Share Live")).toBeTruthy();
     expect(screen.getByText("Nearby Police")).toBeTruthy();
     expect(screen.getByText("Hospitals")).toBeTruthy();
     expect(screen.getByText("AI Assistant")).toBeTruthy();

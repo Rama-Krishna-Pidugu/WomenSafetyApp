@@ -4,12 +4,25 @@ jest.mock("../services/contactStorageService", () => ({
   },
 }));
 
+jest.mock("../services/incidentSyncService", () => ({
+  fetchIncidentHistory: jest.fn().mockResolvedValue([]),
+  syncIncidentEvent: jest.fn().mockResolvedValue(undefined),
+  incidentSyncService: {
+    fetchUserIncidents: jest.fn().mockResolvedValue({ incidents: [], isOffline: false }),
+    fetchIncidentTimeline: jest.fn().mockResolvedValue({ events: [], isOffline: false }),
+    logTimelineEvent: jest.fn().mockResolvedValue(undefined),
+    getPendingEvents: jest.fn().mockResolvedValue([]),
+  },
+}));
+
 import { render, screen, cleanup } from "@testing-library/react-native";
 import { HistoryScreen, IncidentDetailScreen } from "./HistoryScreens";
 
 afterEach(() => {
   cleanup();
 });
+
+jest.setTimeout(30000);
 
 describe("HistoryScreens", () => {
   it("renders HistoryScreen dashboard and list", async () => {

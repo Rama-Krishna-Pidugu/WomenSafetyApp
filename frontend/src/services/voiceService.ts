@@ -1,11 +1,16 @@
-import { Audio } from 'expo-av';
+let createAudioPlayer: any = null;
+try {
+  createAudioPlayer = require("expo-audio").createAudioPlayer;
+} catch (e) {
+  console.warn("[VoiceService] expo-audio fallback:", e);
+}
 
 /**
  * Service handling voice playback after a fake call is answered.
  * Supports male/female preset recordings and optional custom URIs.
  */
 export class VoiceService {
-  private sound: Audio.Sound | null = null;
+  private player: any = null;
   private isPlaying: boolean = false;
 
   /**
@@ -16,26 +21,17 @@ export class VoiceService {
     voiceGender: 'Male' | 'Female',
     customUri?: string,
   ): Promise<void> {
-    // Ensure any previous voice playback is stopped
     await this.stopVoice();
 
-    // Resolve the source to play
-    const source = customUri
-      ? { uri: customUri }
-      : voiceGender === 'Male'
-      ? { uri: 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm.ogg' } // placeholder male
-      : { uri: 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm.ogg' }; // placeholder female (reuse for demo)
+    const uri = customUri || 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm.ogg';
 
     try {
-      const { sound } = await Audio.Sound.createAsync(source, {
-        shouldPlay: true,
-        isLooping: false,
-        volume: 1.0,
-      });
-      this.sound = sound;
+      if (createAudioPlayer) {
+        this.player = createAudioPlayer({ uri });
+        this.player.play();
+      }
       this.isPlaying = true;
     } catch (e) {
-      // Silently ignore playback errors in the preparation phase
       console.warn('Voice playback error', e);
     }
   }
@@ -44,14 +40,14 @@ export class VoiceService {
    * Stop any currently playing voice audio and unload the resource.
    */
   public async stopVoice(): Promise<void> {
-    if (!this.isPlaying || !this.sound) return;
+    if (!this.isPlaying || !this.player) return;
     try {
-      await this.sound.stopAsync();
-      await this.sound.unloadAsync();
+      this.player.pause();
+      this.player.remove?.();
     } catch {
       // ignore errors
     } finally {
-      this.sound = null;
+      this.player = null;
       this.isPlaying = false;
     }
   }

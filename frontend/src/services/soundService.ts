@@ -1,8 +1,13 @@
-import { Audio } from "expo-av";
+let createAudioPlayer: any = null;
+try {
+  createAudioPlayer = require("expo-audio").createAudioPlayer;
+} catch (e) {
+  console.warn("[SoundService] expo-audio fallback:", e);
+}
 
 export class SoundService {
-  private sound: Audio.Sound | null = null;
-  private voice: Audio.Sound | null = null;
+  private soundPlayer: any = null;
+  private voicePlayer: any = null;
   private isPlaying: boolean = false;
   private isVoicePlaying: boolean = false;
 
@@ -17,31 +22,18 @@ export class SoundService {
         return;
       }
 
-      // Configure Audio Mode for call playback
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        staysActiveInBackground: true,
-        playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-      });
-
-      // Map ringtone names to actual audio URLs
-      let audioUri = "https://bigsoundbank.com/UPLOAD/mp3/0452.mp3"; // Default (Marimba)
+      let audioUri = "https://bigsoundbank.com/UPLOAD/mp3/0452.mp3";
       if (ringtoneName === "Classic") {
         audioUri = "https://bigsoundbank.com/UPLOAD/mp3/1111.mp3";
       }
 
-      // Synthetic audio tone stream or ringtone sound resource
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: audioUri },
-        { shouldPlay: true, isLooping: true, volume: 0.9 }
-      );
-
-      this.sound = sound;
+      if (createAudioPlayer) {
+        this.soundPlayer = createAudioPlayer({ uri: audioUri });
+        this.soundPlayer.loop = true;
+        this.soundPlayer.play();
+      }
       this.isPlaying = true;
     } catch {
-      // Audio playback fallback if offline or network unavailable
       this.isPlaying = true;
     }
   }
@@ -50,17 +42,17 @@ export class SoundService {
    * Stop ringtone audio immediately when call is answered or declined
    */
   public async stopRingtone(): Promise<void> {
-    if (!this.isPlaying && !this.sound) return;
+    if (!this.isPlaying && !this.soundPlayer) return;
 
     try {
-      if (this.sound) {
-        await this.sound.stopAsync();
-        await this.sound.unloadAsync();
+      if (this.soundPlayer) {
+        this.soundPlayer.pause();
+        this.soundPlayer.remove?.();
       }
     } catch {
       // Silently ignore unload errors
     } finally {
-      this.sound = null;
+      this.soundPlayer = null;
       this.isPlaying = false;
     }
   }
@@ -78,12 +70,10 @@ export class SoundService {
 
       const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=en&client=tw-ob`;
 
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: url },
-        { shouldPlay: true, isLooping: false, volume: 1.0 }
-      );
-
-      this.voice = sound;
+      if (createAudioPlayer) {
+        this.voicePlayer = createAudioPlayer({ uri: url });
+        this.voicePlayer.play();
+      }
       this.isVoicePlaying = true;
     } catch (e) {
       console.log("Failed to play voice", e);
@@ -91,16 +81,16 @@ export class SoundService {
   }
 
   public async stopVoice(): Promise<void> {
-    if (!this.isVoicePlaying && !this.voice) return;
+    if (!this.isVoicePlaying && !this.voicePlayer) return;
 
     try {
-      if (this.voice) {
-        await this.voice.stopAsync();
-        await this.voice.unloadAsync();
+      if (this.voicePlayer) {
+        this.voicePlayer.pause();
+        this.voicePlayer.remove?.();
       }
     } catch {
     } finally {
-      this.voice = null;
+      this.voicePlayer = null;
       this.isVoicePlaying = false;
     }
   }

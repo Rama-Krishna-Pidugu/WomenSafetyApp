@@ -78,6 +78,7 @@ export function HistoryScreen({
   const [filter, setFilter] = useState("All");
   const [realSosIncidents, setRealSosIncidents] = useState<SOSIncident[]>([]);
   const [loadingIncidents, setLoadingIncidents] = useState(true);
+  const [hasPendingSync, setHasPendingSync] = useState(false);
 
   useEffect(() => {
     getIncidents()
@@ -85,10 +86,7 @@ export function HistoryScreen({
       .catch(() => setRealSosIncidents([]))
       .finally(() => setLoadingIncidents(false));
 
-    const firebaseUid = auth.currentUser?.uid;
-    if (!firebaseUid) return;
-
-    fetchIncidentHistory(firebaseUid).then((remoteIncidents) => {
+    fetchIncidentHistory().then((remoteIncidents) => {
       if (remoteIncidents.length === 0) return;
       setRealSosIncidents((current) => {
         const localIds = new Set(current.map((i) => i.id));
@@ -118,6 +116,13 @@ export function HistoryScreen({
         <Text style={styles.headerTitle}>History</Text>
         <Text style={styles.headerSub}>Every journey, alert and report — kept only on your account.</Text>
       </View>
+
+      {hasPendingSync && (
+        <View style={styles.syncWarningBanner}>
+          <AlertTriangle size={15} color={colors.warning} />
+          <Text style={styles.syncWarningText}>Some incident information hasn't synced yet.</Text>
+        </View>
+      )}
 
       {state !== "empty" ? (
         <>
@@ -216,6 +221,11 @@ const STEP_LABELS: Record<string, { title: string; tone: TimelineTone }> = {
   LIVE_TRACKING_STARTED: { title: "Live location tracking started", tone: "brand" },
   LIVE_TRACKING_FAILED: { title: "Live location tracking failed", tone: "warning" },
   LOCATION_UPDATE: { title: "Location updated", tone: "brand" },
+  AUDIO_STARTED: { title: "Audio recording started", tone: "brand" },
+  AUDIO_STOPPED: { title: "Audio evidence saved", tone: "success" },
+  PHOTO_CAPTURED: { title: "Photo evidence captured", tone: "brand" },
+  VIDEO_STARTED: { title: "Video recording started", tone: "brand" },
+  VIDEO_STOPPED: { title: "Video evidence saved", tone: "success" },
   SOS_ENDED: { title: "Emergency ended", tone: "success" },
   AI_WARNING: { title: "AI Pre-Warning Triggered", tone: "warning" },
   AI_RISK_DETECTED: { title: "AI Threat Detected", tone: "warning" },
@@ -248,6 +258,25 @@ function describeTimelineStep(entry: SOSLogEntry | IncidentEventRecord): { time:
     if (typeof lat === "number" && typeof lon === "number") {
       detail = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
     }
+  } else if (entry.step === "AUDIO_STARTED") {
+    detail = "Continuous audio recording active.";
+  } else if (entry.step === "AUDIO_STOPPED") {
+    const dur = entry.data?.durationSeconds;
+    const seal = entry.data?.tamperSeal;
+    detail = `Saved ${dur ? `${dur}s audio clip` : "audio evidence"}${seal ? ` · ${seal}` : ""}.`;
+  } else if (entry.step === "PHOTO_CAPTURED") {
+    const count = entry.data?.count || 2;
+    const hash = (entry.data?.frontSha256 as string) || (entry.data?.frontSeal as string);
+    const shortHash = hash ? (hash.startsWith("seal:") ? hash : `SHA-256: ${hash.slice(0, 8)}…${hash.slice(-4)}`) : "";
+    const upload = entry.data?.uploadStatus === "UPLOADED" ? "Uploaded to cloud" : "Saved locally (Upload: Pending)";
+    detail = `Auto-captured ${count} photos of surroundings${shortHash ? ` · ${shortHash}` : ""} · Status: ${upload}.`;
+  } else if (entry.step === "VIDEO_STARTED") {
+    detail = "Continuous video recording active · Status: Saved locally (Upload: Pending).";
+  } else if (entry.step === "VIDEO_STOPPED") {
+    const dur = entry.data?.durationSeconds;
+    const hash = entry.data?.sha256 as string;
+    const shortHash = hash ? `SHA-256: ${hash.slice(0, 8)}…${hash.slice(-4)}` : "";
+    detail = `Saved ${dur ? `${dur}s video clip` : "video recording"}${shortHash ? ` · ${shortHash}` : ""} · Status: Saved locally.`;
   } else if (entry.step === "SOS_ENDED" && typeof entry.data?.status === "string") {
     detail = `Marked as ${entry.data.status}.`;
   } else if (
@@ -381,6 +410,24 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
   headerTitle: { fontSize: 28, fontWeight: "700", color: colors.foreground, letterSpacing: -0.3 },
   headerSub: { fontSize: 15, color: colors.mutedForeground, marginTop: 4 },
+  syncWarningBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: `${colors.warning}15`,
+    borderColor: `${colors.warning}40`,
+    borderWidth: 1,
+    borderRadius: 12,
+    marginHorizontal: 20,
+    marginBottom: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  syncWarningText: {
+    fontSize: 13,
+    color: colors.warning,
+    fontWeight: "500",
+  },
   searchWrap: { paddingHorizontal: 20, marginBottom: 8 },
   searchBar: {
     flexDirection: "row",

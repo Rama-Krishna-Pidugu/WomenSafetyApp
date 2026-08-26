@@ -24,6 +24,8 @@ import {
   Clock,
   MapPin,
   PhoneCall,
+  Map,
+  Share2,
 } from "lucide-react-native";
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
@@ -45,13 +47,10 @@ import type { SOSTriggerSource } from "../services/sosOrchestratorService";
 
 export type HomeState = "default" | "monitoring" | "caution" | "loading";
 
-const USER = {
-  firstName: "Aisha",
-  initials: "AP",
-};
-
 const QUICK_ACTIONS = [
   { label: "Safe Route", icon: RouteIcon },
+  { label: "Live Map", icon: Map },
+  { label: "Share Live", icon: Share2 },
   { label: "Nearby Police", icon: ShieldCheck },
   { label: "Hospitals", icon: Ambulance },
   { label: "AI Assistant", icon: Sparkles },
@@ -136,6 +135,28 @@ export function HomeScreen({
 }) {
   const [pressed, setPressed] = useState(false);
   const loading = state === "loading";
+
+  // ── Profile User Name & Initials lookup ─────────────────────
+  const [userName, setUserName] = useState<string>("User");
+  const [userInitials, setUserInitials] = useState<string>("U");
+
+  useEffect(() => {
+    let isMounted = true;
+    getMyProfile()
+      .then((profile) => {
+        if (!isMounted || !profile) return;
+        const rawName = profile.full_name || (profile as any).name || "User";
+        const parts = rawName.trim().split(" ");
+        const firstName = parts[0] || rawName;
+        const initials = parts.map((p: string) => p[0]).join("").toUpperCase().slice(0, 2) || "U";
+        setUserName(firstName);
+        setUserInitials(initials);
+      })
+      .catch(() => {});
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // ── Real-time area name lookup ────────────────────────────────
   const [userAreaName, setUserAreaName] = useState<string>("Mandadam");
@@ -229,11 +250,11 @@ export function HomeScreen({
 
       <View style={styles.header}>
         <LinearGradient colors={gradientBrand as unknown as [string, string, ...string[]]} style={styles.avatar}>
-          <Text style={styles.avatarText}>{USER.initials}</Text>
+          <Text style={styles.avatarText}>{userInitials}</Text>
         </LinearGradient>
         <View style={styles.headerText}>
           <Text style={styles.greeting}>Good evening,</Text>
-          <Text style={styles.userName}>{USER.firstName}</Text>
+          <Text style={styles.userName}>{userName}</Text>
         </View>
         <Pressable
           onPress={onNotifications}

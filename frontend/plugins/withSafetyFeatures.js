@@ -46,6 +46,42 @@ const withSafetyAndroidManifest = (config) => {
         });
       }
 
+      // Add FakeCallBroadcastReceiver
+      const hasFakeCallReceiver = mainApplication.receiver?.some(
+        (receiver) => receiver.$['android:name'] === '.FakeCallBroadcastReceiver'
+      );
+      if (!hasFakeCallReceiver) {
+        if (!mainApplication.receiver) mainApplication.receiver = [];
+        mainApplication.receiver.push({
+          $: {
+            'android:name': '.FakeCallBroadcastReceiver',
+            'android:exported': 'false'
+          }
+        });
+      }
+
+      // Add FakeCallActivity
+      const hasFakeCallActivity = mainApplication.activity?.some(
+        (activity) => activity.$['android:name'] === '.FakeCallActivity'
+      );
+      if (!hasFakeCallActivity) {
+        if (!mainApplication.activity) mainApplication.activity = [];
+        mainApplication.activity.push({
+          $: {
+            'android:name': '.FakeCallActivity',
+            'android:showWhenLocked': 'true',
+            'android:turnScreenOn': 'true',
+            'android:showForAllUsers': 'true',
+            'android:excludeFromRecents': 'true',
+            'android:launchMode': 'singleTask',
+            'android:taskAffinity': '',
+            'android:screenOrientation': 'portrait',
+            'android:theme': '@style/Theme.AppCompat.NoActionBar',
+            'android:exported': 'false'
+          }
+        });
+      }
+
       // Add SafetyTileService
       const hasSafetyTileService = mainApplication.service?.some(
         (service) => service.$['android:name'] === '.SafetyTileService'
@@ -78,7 +114,11 @@ const withSafetyAndroidManifest = (config) => {
       'android.permission.RECORD_AUDIO',
       'android.permission.SYSTEM_ALERT_WINDOW',
       'android.permission.VIBRATE',
+      'android.permission.WAKE_LOCK',
       'android.permission.POST_NOTIFICATIONS',
+      'android.permission.SCHEDULE_EXACT_ALARM',
+      'android.permission.USE_EXACT_ALARM',
+      'android.permission.USE_FULL_SCREEN_INTENT',
       'android.permission.FOREGROUND_SERVICE_SPECIAL_USE'
     ];
 
@@ -126,7 +166,12 @@ const withSafetyAndroidFiles = (config) => {
         'SafetyPackage.kt',
         'SafetyTileService.kt',
         'SOSModule.kt',
-        'ShakeModule.kt'
+        'ShakeModule.kt',
+        'FakeCallActivity.kt',
+        'FakeCallBroadcastReceiver.kt',
+        'FakeCallScheduler.kt',
+        'FakeCallModule.kt',
+        'FakeCallTileService.kt'
       ];
 
       for (const file of files) {

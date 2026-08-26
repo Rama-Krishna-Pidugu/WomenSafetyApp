@@ -38,7 +38,7 @@ describe("SosScreen", () => {
   it("renders confirm dialog when state is confirm", async () => {
     await render(<SosScreen state="confirm" />);
     expect(screen.getByText("End the emergency?")).toBeTruthy();
-    expect(screen.getByText("Yes, I'm safe now")).toBeTruthy();
+    expect(screen.getByText("Verify a trusted face")).toBeTruthy();
   });
 
   it("renders cancelled screen when state is cancelled", async () => {

@@ -122,6 +122,13 @@ export function FamilyLiveTrackingScreen({
           <Text style={styles.lastSyncText}>
             {signalLost ? `Location signal lost — last seen at ${lastUpdated}` : `Last updated: ${lastUpdated}`}
           </Text>
+
+          {/* Transit Status Badges */}
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+            <Badge tone="neutral">🚶 Walking · 4.2 km/h</Badge>
+            <Badge tone="success">📶 Strong GPS</Badge>
+            <Badge tone="warning">🔋 88% Battery</Badge>
+          </View>
         </View>
 
         {/* OpenStreetMap Component */}
@@ -132,6 +139,7 @@ export function FamilyLiveTrackingScreen({
             isFamilyView={true}
             showGeofence={true}
             geofenceRadiusMeters={400}
+            userAvatarInitials={userName ? userName.split(" ").map((n) => n[0]).join("").slice(0, 2) : "PS"}
             height={260}
           />
         </View>
@@ -141,7 +149,7 @@ export function FamilyLiveTrackingScreen({
           <View style={styles.metricCard}>
             <Clock size={20} color={colors.primary} />
             <Text style={styles.metricValue}>{etaMinutes} min</Text>
-            <Text style={styles.metricLabel}>Estimated Arrival</Text>
+            <Text style={styles.metricLabel}>ETA Arrival</Text>
           </View>
 
           <View style={styles.metricCard}>

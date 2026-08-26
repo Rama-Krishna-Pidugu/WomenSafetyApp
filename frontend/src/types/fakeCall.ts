@@ -17,11 +17,14 @@ export interface VoicePreset {
 }
 
 export interface FakeCallConfig {
-  callerName: 'Mom' | 'Dad';
+  callerName: string;
+  phoneNumber?: string;
   ringtone: string;
   vibrate: boolean;
   autoPlayVoice: boolean;
   delayMinutes: number;
+  delaySeconds?: number;
+  enabled?: boolean;
 }
 
 export interface FakeCallState {

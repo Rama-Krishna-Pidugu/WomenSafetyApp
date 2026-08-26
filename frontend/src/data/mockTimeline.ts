@@ -39,7 +39,7 @@ export const MOCK_INCIDENT_TIMELINES: Record<string, IncidentEventRecord[]> = {
     {
       id: "evt-004",
       incident_id: "mock-sos-001",
-      event_type: "CALL_INITIATED",
+      event_type: "EMERGENCY_CALL_INITIATED",
       title: "Call Initiated",
       description: "Silent emergency call placed to primary contact",
       metadata: { recipient: "Amma (+91 98450 11234)" },
@@ -66,7 +66,7 @@ export const MOCK_INCIDENT_TIMELINES: Record<string, IncidentEventRecord[]> = {
     {
       id: "evt-007",
       incident_id: "mock-sos-001",
-      event_type: "AI_RISK_DETECTED",
+      event_type: "HIGH_RISK_DETECTED",
       title: "AI Threat Detected",
       description: "Abnormal movement & acoustic distress sound detected",
       metadata: { confidence: 88, danger_score: 75, model_version: "v2.1" },
