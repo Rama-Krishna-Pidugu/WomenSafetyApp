@@ -63,6 +63,7 @@ export function ProfileScreen({
   onAssistant,
   onSos,
   onManageContacts,
+  onSafetyCircle,
   onLoggedOut,
 }: {
   onTab?: (t: TabKey) => void;
@@ -71,6 +72,7 @@ export function ProfileScreen({
   onAssistant?: () => void;
   onSos?: () => void;
   onManageContacts?: () => void;
+  onSafetyCircle?: () => void;
   onLoggedOut?: () => void;
 }) {
   const [logoutOpen, setLogoutOpen] = useState(false);
@@ -199,6 +201,7 @@ export function ProfileScreen({
           <SectionHeader title="Safety profile" />
           <Card style={styles.listCard}>
             <SettingRow icon={<Users size={17} color={colors.primary} />} title="Emergency contacts" subtitle={`${contacts.length} of 5 added`} onPress={onManageContacts} />
+            <SettingRow icon={<ShieldCheck size={17} color={colors.primary} />} title="Safety Circle" subtitle="Who gets notified, and for what" onPress={onSafetyCircle} />
             <SettingRow
               icon={<HeartPulse size={17} color={colors.primary} />}
               title="Medical information"

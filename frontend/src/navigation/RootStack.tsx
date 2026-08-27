@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Alert, Platform } from "react-native";
 import { NavigationContainer, useNavigationContainerRef } from "@react-navigation/native";
 import * as Sentry from "@sentry/react-native";
+import { sentryNavIntegration } from "../../App";
 import * as Linking from "expo-linking";
 import { createNativeStackNavigator, type NativeStackScreenProps } from "@react-navigation/native-stack";
 
@@ -29,6 +30,7 @@ import { SafetyScreen } from "../screens/SafetyScreen";
 import { SafetyModeScreen } from "../screens/SafetyModeScreens";
 import { HistoryScreen, IncidentDetailScreen } from "../screens/HistoryScreens";
 import { ProfileScreen, SettingsScreen, DataPrivacyScreen, ManageContactsScreen } from "../screens/ProfileScreens";
+import { SafetyCircleScreen } from "../screens/SafetyCircleScreen";
 import { SosScreen, type SosState } from "../screens/SosScreen";
 import { SafeRouteScreen } from "../screens/SafeRouteScreen";
 import { FamilyLiveTrackingScreen } from "../screens/FamilyLiveTrackingScreen";
@@ -83,6 +85,7 @@ export type RootStackParamList = {
   Settings: undefined;
   DataPrivacy: undefined;
   ManageContacts: undefined;
+  SafetyCircle: undefined;
   NewIncident: undefined;
   IncidentDetail: { incidentId?: string; id?: string } | undefined;
   UploadEvidence: { incidentId?: string } | undefined;
@@ -422,6 +425,7 @@ function ProfileRouteScreen({ navigation }: P<"Profile">) {
       onAssistant={() => navigation.navigate("Assistant")}
       onSos={() => navigation.navigate("Sos", { state: "active" })}
       onManageContacts={() => navigation.navigate("ManageContacts")}
+      onSafetyCircle={() => navigation.navigate("SafetyCircle")}
       onLoggedOut={() => navigation.reset({ index: 0, routes: [{ name: "Welcome" }] })}
     />
   );
@@ -429,6 +433,10 @@ function ProfileRouteScreen({ navigation }: P<"Profile">) {
 
 function ManageContactsRouteScreen({ navigation }: P<"ManageContacts">) {
   return <ManageContactsScreen onBack={() => navigation.goBack()} />;
+}
+
+function SafetyCircleRouteScreen({ navigation }: P<"SafetyCircle">) {
+  return <SafetyCircleScreen onBack={() => navigation.goBack()} />;
 }
 
 function SosRouteScreen({ navigation, route }: P<"Sos">) {
@@ -606,7 +614,11 @@ function MobileApp() {
   };
 
   return (
-    <Sentry.NavigationContainer ref={navigationRef} linking={linking}>
+    <NavigationContainer
+      ref={navigationRef}
+      linking={linking}
+      onReady={() => sentryNavIntegration.registerNavigationContainer(navigationRef)}
+    >
       <Stack.Navigator initialRouteName="Splash" screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Splash" component={SplashRouteScreen} />
         <Stack.Screen name="Onboarding" component={OnboardingRouteScreen} />
@@ -641,6 +653,7 @@ function MobileApp() {
         <Stack.Screen name="Settings" component={SettingsScreen} />
         <Stack.Screen name="DataPrivacy" component={DataPrivacyScreen} />
         <Stack.Screen name="ManageContacts" component={ManageContactsRouteScreen} />
+        <Stack.Screen name="SafetyCircle" component={SafetyCircleRouteScreen} />
         <Stack.Screen name="NewIncident" component={NewIncidentRouteScreen} />
         <Stack.Screen name="IncidentDetail" component={IncidentDetailRouteScreen} />
         <Stack.Screen name="UploadEvidence" component={UploadEvidenceRouteScreen} />
@@ -655,7 +668,7 @@ function MobileApp() {
         <Stack.Screen name="FakeCall" component={FakeCallRouteScreen} />
         <Stack.Screen name="IncomingCall" component={IncomingCallRouteScreen} />
       </Stack.Navigator>
-    </Sentry.NavigationContainer>
+    </NavigationContainer>
   );
 }
 

@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import { View, Text, Pressable, ScrollView, StyleSheet, Linking, Alert, Platform } from "react-native";
 import {
   Clock,
-  Lightbulb,
   MapPin,
   Navigation,
   Search,
@@ -34,54 +33,14 @@ import { getPublicTrackingUrl } from "../utils/trackingUrl";
 
 export type SafeRouteState = "search" | "results" | "loading" | "navigating";
 
-const PLACES = [
-  { id: "p1", name: "Home", detail: "100 Ft Road, Indiranagar", lat: 12.9850, lng: 77.6050 },
-  { id: "p2", name: "Office", detail: "Koramangala 5th Block", lat: 12.9352, lng: 77.6245 },
-  { id: "p3", name: "Starbucks Indiranagar", detail: "12th Main Road", lat: 12.9784, lng: 77.6408 },
-];
-
-const SAFE_ROUTES = [
-  {
-    id: "sr1",
-    label: "Lit Corridor Main Rd",
-    risk: "low" as const,
-    detail: "98% well lit · High CCTV coverage",
-    time: "18 min",
-    distance: "4.2 km",
-    points: [
-      [12.9716, 77.5946],
-      [12.9750, 77.5980],
-      [12.9800, 77.6020],
-      [12.9850, 77.6050],
-    ] as Array<[number, number]>,
-  },
-  {
-    id: "sr2",
-    label: "Inner Link Road",
-    risk: "medium" as const,
-    detail: "72% well lit · Medium traffic",
-    time: "14 min",
-    distance: "3.6 km",
-    points: [
-      [12.9716, 77.5946],
-      [12.9730, 77.6000],
-      [12.9810, 77.6030],
-      [12.9850, 77.6050],
-    ] as Array<[number, number]>,
-  },
-];
-
-const RISK_TONE = {
-  low: { label: "Low risk", tone: "success" as const },
-  medium: { label: "Some risk", tone: "warning" as const },
-  high: { label: "High risk", tone: "emergency" as const },
+// Route cards are categorized by what real, verifiable thing they lead to — never by a
+// fabricated "risk"/"lit %"/"CCTV coverage" score, since no data source for that exists
+// anywhere in this codebase. See ROUTE_CATEGORY below.
+const ROUTE_CATEGORY: Record<"police" | "hospital" | "direct", { label: string; tone: "brand" | "neutral" }> = {
+  police: { label: "Police station", tone: "brand" },
+  hospital: { label: "Hospital", tone: "brand" },
+  direct: { label: "Direct route", tone: "neutral" },
 };
-
-const MOCK_SAFE_SPOTS: SafeSpotMarker[] = [
-  { id: "sp1", name: "Indiranagar Police Station", type: "police", lat: 12.9755, lng: 77.5990 },
-  { id: "sp2", name: "Manipal Hospital 24/7", type: "hospital", lat: 12.9790, lng: 77.6015 },
-  { id: "sp3", name: "Women Safe Haven Shelter", type: "shelter", lat: 12.9820, lng: 77.6035 },
-];
 
 export function SafeRouteScreen({
   state: initialState = "results",
@@ -94,21 +53,25 @@ export function SafeRouteScreen({
   onStartNavigation?: () => void;
   onOpenFamilyTracking?: (params: {
     sessionId: string;
-    destinationName: string;
-    destinationLat: number;
-    destinationLng: number;
+    destinationName?: string;
+    destinationLat?: number;
+    destinationLng?: number;
   }) => void;
 }) {
   const [screenState, setScreenState] = useState<SafeRouteState>(initialState);
-  const [pickedRouteId, setPickedRouteId] = useState("sr1");
+  const [pickedRouteId, setPickedRouteId] = useState<string | null>(null);
   const initialLoc = locationService.getLastKnownLocation?.()?.coordinates;
   const [userLocation, setUserLocation] = useState<LatLng>(
     initialLoc ? { lat: initialLoc.latitude, lng: initialLoc.longitude } : { lat: 12.9716, lng: 77.5946 }
   );
-  const [destination, setDestination] = useState<LatLng>({ lat: 12.9850, lng: 77.6050 });
-  const [destinationName, setDestinationName] = useState("Home · Nandi Layout");
-  const [distanceKm, setDistanceKm] = useState<number>(4.2);
-  const [etaMinutes, setEtaMinutes] = useState<number>(18);
+  const [hasGpsFix, setHasGpsFix] = useState<boolean>(!!initialLoc);
+  // No destination is fabricated by default — this screen has no prop for a caller to pass
+  // one in yet, so until real destination search exists, it stays null and the UI shows a
+  // destination-agnostic live-sharing view instead of pretending the user picked somewhere.
+  const [destination, setDestination] = useState<LatLng | null>(null);
+  const [destinationName, setDestinationName] = useState<string | null>(null);
+  const [distanceKm, setDistanceKm] = useState<number | null>(null);
+  const [etaMinutes, setEtaMinutes] = useState<number | null>(null);
   const [isInsideGeofence, setIsInsideGeofence] = useState<boolean>(true);
   const [trackingSessionId, setTrackingSessionId] = useState<string | null>(null);
 
@@ -123,11 +86,12 @@ export function SafeRouteScreen({
     showShelters: true,
   });
 
-  const [userAddress, setUserAddress] = useState<string>("Indiranagar 100 Ft Road, Bengaluru");
+  const [userAddress, setUserAddress] = useState<string>("");
   const [osmPlaces, setOsmPlaces] = useState<SafeSpotMarker[]>([]);
 
-  // Combine discovered OSM safe spots + fallbacks and filter based on config toggles
-  const allSafeSpots = [...osmPlaces, ...MOCK_SAFE_SPOTS];
+  // Real OpenStreetMap results only — no fabricated fallback pins. An empty list here
+  // honestly means "nothing found nearby yet", matching NearbyHelpScreen's pattern.
+  const allSafeSpots = osmPlaces;
   const activeSafeSpots = allSafeSpots.filter((spot) => {
     if (spot.type === "police" && !geofenceConfig.showPolice) return false;
     if (spot.type === "hospital" && !geofenceConfig.showHospitals) return false;
@@ -135,62 +99,72 @@ export function SafeRouteScreen({
     return true;
   });
 
-  // Dynamically compute safe routes leading to nearest Police Station & Hospital
+  // Real route cards only: a police/hospital card appears only when OSM actually found one
+  // nearby (no fabricated fallback location), and the direct-to-destination card only
+  // appears once a real destination has been chosen — never a made-up one.
   const dynamicSafeRoutes = React.useMemo(() => {
-    const policeSpot = allSafeSpots.find((s) => s.type === "police") || {
-      id: "sp1", name: "Mandadam Police Station", lat: userLocation.lat + 0.004, lng: userLocation.lng + 0.003
-    };
-    const hospitalSpot = allSafeSpots.find((s) => s.type === "hospital") || {
-      id: "sp2", name: "Emergency General Hospital", lat: userLocation.lat + 0.006, lng: userLocation.lng + 0.005
-    };
+    const routes: Array<{
+      id: string;
+      label: string;
+      category: "police" | "hospital" | "direct";
+      detail: string;
+      time: string;
+      distance: string;
+      points: Array<[number, number]>;
+    }> = [];
 
-    const policeDistKm = locationService.calculateDistanceKm(userLocation.lat, userLocation.lng, policeSpot.lat, policeSpot.lng);
-    const hospitalDistKm = locationService.calculateDistanceKm(userLocation.lat, userLocation.lng, hospitalSpot.lat, hospitalSpot.lng);
+    const policeSpot = allSafeSpots.find((s) => s.type === "police");
+    if (policeSpot) {
+      const distKm = locationService.calculateDistanceKm(userLocation.lat, userLocation.lng, policeSpot.lat, policeSpot.lng);
+      routes.push({
+        id: "police",
+        label: policeSpot.name,
+        category: "police",
+        detail: "Nearest verified police station (OpenStreetMap)",
+        time: `~${locationService.calculateETA(distKm, 15)} min`,
+        distance: `${distKm.toFixed(1)} km`,
+        points: [[userLocation.lat, userLocation.lng], [policeSpot.lat, policeSpot.lng]],
+      });
+    }
 
-    return [
-      {
-        id: "sr1",
-        label: `Safe Route to ${policeSpot.name}`,
-        risk: "low" as const,
-        detail: "Direct safe corridor to Police Station · 24/7 Patrol",
-        time: `${Math.max(3, Math.ceil(policeDistKm * 4))} min`,
-        distance: `${policeDistKm.toFixed(1)} km`,
-        points: [
-          [userLocation.lat, userLocation.lng],
-          [userLocation.lat + (policeSpot.lat - userLocation.lat) * 0.5, userLocation.lng + (policeSpot.lng - userLocation.lng) * 0.3],
-          [policeSpot.lat, policeSpot.lng],
-        ] as Array<[number, number]>,
-      },
-      {
-        id: "sr2",
-        label: `Emergency Route to ${hospitalSpot.name}`,
-        risk: "low" as const,
-        detail: "Fastest medical emergency corridor · 98% Well Lit",
-        time: `${Math.max(4, Math.ceil(hospitalDistKm * 3.5))} min`,
-        distance: `${hospitalDistKm.toFixed(1)} km`,
-        points: [
-          [userLocation.lat, userLocation.lng],
-          [userLocation.lat + (hospitalSpot.lat - userLocation.lat) * 0.4, userLocation.lng + (hospitalSpot.lng - userLocation.lng) * 0.6],
-          [hospitalSpot.lat, hospitalSpot.lng],
-        ] as Array<[number, number]>,
-      },
-      {
-        id: "sr3",
-        label: "Lit Corridor Main Rd",
-        risk: "low" as const,
-        detail: "98% well lit · High CCTV coverage",
-        time: "18 min",
-        distance: "4.2 km",
-        points: [
-          [userLocation.lat, userLocation.lng],
-          [userLocation.lat + 0.003, userLocation.lng + 0.003],
-          [destination.lat, destination.lng],
-        ] as Array<[number, number]>,
-      },
-    ];
-  }, [userLocation, allSafeSpots, destination]);
+    const hospitalSpot = allSafeSpots.find((s) => s.type === "hospital");
+    if (hospitalSpot) {
+      const distKm = locationService.calculateDistanceKm(userLocation.lat, userLocation.lng, hospitalSpot.lat, hospitalSpot.lng);
+      routes.push({
+        id: "hospital",
+        label: hospitalSpot.name,
+        category: "hospital",
+        detail: "Nearest verified hospital (OpenStreetMap)",
+        time: `~${locationService.calculateETA(distKm, 15)} min`,
+        distance: `${distKm.toFixed(1)} km`,
+        points: [[userLocation.lat, userLocation.lng], [hospitalSpot.lat, hospitalSpot.lng]],
+      });
+    }
 
-  const selectedRoute = dynamicSafeRoutes.find((r) => r.id === pickedRouteId) || dynamicSafeRoutes[0];
+    if (destination) {
+      const distKm = locationService.calculateDistanceKm(userLocation.lat, userLocation.lng, destination.lat, destination.lng);
+      routes.push({
+        id: "direct",
+        label: destinationName || "Your destination",
+        category: "direct",
+        detail: "Straight-line path — actual road route may differ",
+        time: `~${locationService.calculateETA(distKm, 15)} min`,
+        distance: `${distKm.toFixed(1)} km`,
+        points: [[userLocation.lat, userLocation.lng], [destination.lat, destination.lng]],
+      });
+    }
+
+    return routes;
+  }, [userLocation, allSafeSpots, destination, destinationName]);
+
+  useEffect(() => {
+    if (dynamicSafeRoutes.length === 0) {
+      setPickedRouteId(null);
+    } else if (!dynamicSafeRoutes.some((r) => r.id === pickedRouteId)) {
+      setPickedRouteId(dynamicSafeRoutes[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dynamicSafeRoutes]);
 
   // Subscribe to live GPS tracking updates (4-5s interval)
   useEffect(() => {
@@ -200,6 +174,7 @@ export function SafeRouteScreen({
       if (loc && isMounted) {
         const coords = { lat: loc.coordinates.latitude, lng: loc.coordinates.longitude };
         setUserLocation(coords);
+        setHasGpsFix(true);
         if (loc.address?.formattedAddress) {
           setUserAddress(loc.address.formattedAddress);
         }
@@ -245,29 +220,26 @@ export function SafeRouteScreen({
         lng: loc.coordinates.longitude,
       };
       setUserLocation(newPos);
+      setHasGpsFix(true);
       if (loc.address?.formattedAddress) {
         setUserAddress(loc.address.formattedAddress);
       }
 
-      // Recalculate distance and ETA dynamically
-      const remDist = locationService.calculateDistanceKm(
-        newPos.lat,
-        newPos.lng,
-        destination.lat,
-        destination.lng
-      );
-      setDistanceKm(remDist);
-      setEtaMinutes(locationService.calculateETA(remDist, 15));
+      // Distance/ETA/geofence only mean something relative to a real, chosen destination.
+      if (destination) {
+        const remDist = locationService.calculateDistanceKm(newPos.lat, newPos.lng, destination.lat, destination.lng);
+        setDistanceKm(remDist);
+        setEtaMinutes(locationService.calculateETA(remDist, 15));
 
-      // Geofence check using user-configured radius
-      const inside = locationService.isInsideGeofence(
-        newPos.lat,
-        newPos.lng,
-        destination.lat,
-        destination.lng,
-        geofenceConfig.radiusMeters
-      );
-      setIsInsideGeofence(inside);
+        const inside = locationService.isInsideGeofence(
+          newPos.lat,
+          newPos.lng,
+          destination.lat,
+          destination.lng,
+          geofenceConfig.radiusMeters
+        );
+        setIsInsideGeofence(inside);
+      }
     });
 
     return () => {
@@ -294,7 +266,8 @@ export function SafeRouteScreen({
     try {
       const contacts = await contactStorageService.getStoredEmergencyContacts();
       const trackingUrl = getPublicTrackingUrl(sessionId);
-      const smsMessage = `🛡️ Aegis Safety Live Tracking: I have started navigation to ${destinationName}. Track my real-time location live on map: ${trackingUrl}`;
+      const destinationClause = destinationName ? ` to ${destinationName}` : "";
+      const smsMessage = `🛡️ Aegis Safety Live Tracking: I have started sharing my live location${destinationClause}. Track my real-time location live on map: ${trackingUrl}`;
 
       if (contacts && contacts.length > 0) {
         const phoneNumbers = contacts.map((c) => c.phone).filter(Boolean);
@@ -326,7 +299,7 @@ export function SafeRouteScreen({
     setScreenState("results");
   };
 
-  const handleSelectPlace = (place: (typeof PLACES)[0]) => {
+  const handleSelectPlace = (place: { name: string; lat: number; lng: number }) => {
     setDestination({ lat: place.lat, lng: place.lng });
     setDestinationName(place.name);
     setScreenState("results");
@@ -349,18 +322,12 @@ export function SafeRouteScreen({
             <Text style={styles.searchPlaceholder}>Where are you going?</Text>
           </View>
           <Text style={styles.sectionHeaderTitle}>Saved & Recent Places</Text>
-          <View style={styles.placesList}>
-            {PLACES.map((p) => (
-              <Pressable key={p.id} style={styles.placeCard} onPress={() => handleSelectPlace(p)}>
-                <View style={styles.placeIcon}>
-                  <MapPin size={18} color={colors.primary} />
-                </View>
-                <View style={styles.placeTextWrap}>
-                  <Text style={styles.placeName}>{p.name}</Text>
-                  <Text style={styles.placeDetail}>{p.detail}</Text>
-                </View>
-              </Pressable>
-            ))}
+          <View style={styles.emptyPlacesBox}>
+            <MapPin size={22} color={colors.mutedForeground} />
+            <Text style={styles.emptyPlacesTitle}>No saved places yet</Text>
+            <Text style={styles.emptyPlacesSub}>
+              Places you search for and navigate to will show up here.
+            </Text>
           </View>
         </View>
       </View>
@@ -385,10 +352,12 @@ export function SafeRouteScreen({
             <Badge tone="success">4s Auto-Sync</Badge>
           </View>
           <Text style={styles.myLocAddress} numberOfLines={1}>
-            📍 {userAddress}
+            📍 {userAddress || (hasGpsFix ? "Location acquired" : "Acquiring GPS signal…")}
           </Text>
           <Text style={styles.myLocCoords}>
-            GPS Coordinates: {userLocation.lat.toFixed(5)}, {userLocation.lng.toFixed(5)}
+            {hasGpsFix
+              ? `GPS Coordinates: ${userLocation.lat.toFixed(5)}, ${userLocation.lng.toFixed(5)}`
+              : "Waiting for a real GPS fix…"}
           </Text>
         </View>
 
@@ -405,7 +374,7 @@ export function SafeRouteScreen({
         <View style={styles.mapWrap}>
           <LiveTrackingMapView
             userLocation={userLocation}
-            destination={destination}
+            destination={destination ?? undefined}
             routes={routePolylines}
             safeSpots={activeSafeSpots}
             showGeofence={true}
@@ -458,22 +427,28 @@ export function SafeRouteScreen({
               <Badge tone="success">4s Auto-Sync</Badge>
             </View>
 
-            <View style={styles.statsRow}>
-              <View style={styles.statBox}>
-                <Text style={styles.statVal}>{etaMinutes} min</Text>
-                <Text style={styles.statSub}>ETA</Text>
+            {destination ? (
+              <View style={styles.statsRow}>
+                <View style={styles.statBox}>
+                  <Text style={styles.statVal}>{etaMinutes != null ? `${etaMinutes} min` : "—"}</Text>
+                  <Text style={styles.statSub}>ETA</Text>
+                </View>
+                <View style={styles.statDivider} />
+                <View style={styles.statBox}>
+                  <Text style={styles.statVal}>{distanceKm != null ? `${distanceKm.toFixed(1)} km` : "—"}</Text>
+                  <Text style={styles.statSub}>Distance</Text>
+                </View>
+                <View style={styles.statDivider} />
+                <View style={styles.statBox}>
+                  <Text style={styles.statVal} numberOfLines={1}>{destinationName}</Text>
+                  <Text style={styles.statSub}>Destination</Text>
+                </View>
               </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statBox}>
-                <Text style={styles.statVal}>{distanceKm} km</Text>
-                <Text style={styles.statSub}>Distance</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statBox}>
-                <Text style={styles.statVal}>{selectedRoute.label.split(" ")[0]}</Text>
-                <Text style={styles.statSub}>Active Route</Text>
-              </View>
-            </View>
+            ) : (
+              <Text style={styles.noDestinationNote}>
+                No destination set — sharing your live location only.
+              </Text>
+            )}
 
             {smsSentStatus && (
               <View style={styles.smsStatusPill}>
@@ -482,7 +457,7 @@ export function SafeRouteScreen({
               </View>
             )}
 
-            {!isInsideGeofence && (
+            {destination && !isInsideGeofence && (
               <View style={styles.geofenceWarning}>
                 <TriangleAlert size={16} color="#F59E0B" />
                 <Text style={styles.geofenceText}>
@@ -493,46 +468,47 @@ export function SafeRouteScreen({
           </View>
         )}
 
-        {/* Suggested Routes Options */}
+        {/* Suggested Routes Options — only real, verified reference points and, once a
+            destination is chosen, a direct path to it. Never a fabricated safety score. */}
         {screenState !== "navigating" && (
           <>
-            <Text style={styles.routesTitle}>Suggested Safe Routes</Text>
-            <View style={styles.routesList}>
-              {dynamicSafeRoutes.map((r) => {
-                const risk = RISK_TONE[r.risk];
-                const active = pickedRouteId === r.id;
-                return (
-                  <Pressable
-                    key={r.id}
-                    onPress={() => setPickedRouteId(r.id)}
-                    style={[styles.routeCard, active && styles.routeCardActive]}
-                  >
-                    <View style={styles.routeHeader}>
-                      <Text style={styles.routeLabel}>{r.label}</Text>
-                      <Badge tone={risk.tone}>{risk.label}</Badge>
-                    </View>
-                    <Text style={styles.routeDetail}>{r.detail}</Text>
-                    <View style={styles.routeMetaRow}>
-                      <View style={styles.metaItem}>
-                        <Clock size={14} color={colors.mutedForeground} />
-                        <Text style={styles.metaText}>{r.time}</Text>
+            <Text style={styles.routesTitle}>Nearby safe reference points</Text>
+            {dynamicSafeRoutes.length === 0 ? (
+              <View style={styles.emptyPlacesBox}>
+                <MapPin size={22} color={colors.mutedForeground} />
+                <Text style={styles.emptyPlacesTitle}>Still looking nearby</Text>
+                <Text style={styles.emptyPlacesSub}>
+                  No verified police station or hospital found yet from OpenStreetMap — pull down to retry, or set a destination to see a direct route.
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.routesList}>
+                {dynamicSafeRoutes.map((r) => {
+                  const category = ROUTE_CATEGORY[r.category];
+                  const active = pickedRouteId === r.id;
+                  return (
+                    <Pressable
+                      key={r.id}
+                      onPress={() => setPickedRouteId(r.id)}
+                      style={[styles.routeCard, active && styles.routeCardActive]}
+                    >
+                      <View style={styles.routeHeader}>
+                        <Text style={styles.routeLabel}>{r.label}</Text>
+                        <Badge tone={category.tone}>{category.label}</Badge>
                       </View>
-                      <Text style={styles.metaText}>{r.distance}</Text>
-                      <View style={styles.metaItem}>
-                        {r.risk === "low" ? (
-                          <Lightbulb size={14} color={colors.success} />
-                        ) : (
-                          <TriangleAlert size={14} color={colors.warning} />
-                        )}
-                        <Text style={styles.metaText}>
-                          {r.risk === "low" ? "Well lit corridor" : "Check lighting"}
-                        </Text>
+                      <Text style={styles.routeDetail}>{r.detail}</Text>
+                      <View style={styles.routeMetaRow}>
+                        <View style={styles.metaItem}>
+                          <Clock size={14} color={colors.mutedForeground} />
+                          <Text style={styles.metaText}>{r.time}</Text>
+                        </View>
+                        <Text style={styles.metaText}>{r.distance}</Text>
                       </View>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
           </>
         )}
 
@@ -548,15 +524,15 @@ export function SafeRouteScreen({
       <View style={styles.footer}>
         {screenState === "navigating" ? (
           <View style={styles.buttonRow}>
-            {onOpenFamilyTracking && (
+            {onOpenFamilyTracking && trackingSessionId && (
               <Pressable
                 style={styles.secondaryActionBtn}
                 onPress={() =>
                   onOpenFamilyTracking({
-                    sessionId: trackingSessionId ?? "trk_demo",
-                    destinationName,
-                    destinationLat: destination.lat,
-                    destinationLng: destination.lng,
+                    sessionId: trackingSessionId,
+                    destinationName: destinationName ?? undefined,
+                    destinationLat: destination?.lat,
+                    destinationLng: destination?.lng,
                   })
                 }
               >
@@ -653,6 +629,19 @@ const styles = StyleSheet.create({
   placeTextWrap: { flex: 1 },
   placeName: { fontSize: 15, fontWeight: "600", color: colors.foreground },
   placeDetail: { fontSize: 13, color: colors.mutedForeground },
+  emptyPlacesBox: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    padding: 24,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+  },
+  emptyPlacesTitle: { fontSize: 14, fontWeight: "700", color: colors.foreground },
+  emptyPlacesSub: { fontSize: 12, color: colors.mutedForeground, textAlign: "center" },
+  noDestinationNote: { fontSize: 12, color: colors.mutedForeground, textAlign: "center", paddingVertical: 8 },
   myLocationCard: {
     backgroundColor: colors.surface,
     borderWidth: 1,

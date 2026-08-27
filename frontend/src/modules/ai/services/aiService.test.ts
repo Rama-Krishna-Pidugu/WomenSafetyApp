@@ -8,11 +8,13 @@ describe('AIService Intent Handlers & Suggestion Tiles', () => {
   });
 
   // 1. "nearest police station"
+  // Note: this hits the real Overpass API (no network mock in this suite), so whether a
+  // real station is found depends on live network/test-runner conditions. Either outcome
+  // must be a real, non-fabricated answer — never a placeholder distance/location.
   it('1. handles "nearest police station" with structured police info', async () => {
     const result = await aiService.processUserQuery(userId, 'nearest police station');
     expect(result.assistantMessage.content).toContain('POLICE INFORMATION');
-    expect(result.assistantMessage.content).toContain('Distance:');
-    expect(result.assistantMessage.content).toContain('Location:');
+    expect(result.assistantMessage.content).toContain('Emergency Helpline:');
     expect(result.assistantMessage.actionPayload?.suggestedActions).toContain('Directions');
   });
 
@@ -20,7 +22,7 @@ describe('AIService Intent Handlers & Suggestion Tiles', () => {
   it('2. handles "nearby police" query', async () => {
     const result = await aiService.processUserQuery(userId, 'nearby police');
     expect(result.assistantMessage.content).toContain('POLICE INFORMATION');
-    expect(result.assistantMessage.content).toContain('Distance:');
+    expect(result.assistantMessage.content).toContain('Emergency Helpline:');
   });
 
   // 3. "someone is following me what should I do"

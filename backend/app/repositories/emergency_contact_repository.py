@@ -1,4 +1,5 @@
 from typing import Optional, List, Dict, Any
+from datetime import datetime, timezone
 
 from app.db.database import get_supabase
 from app.core.logging import logger
@@ -38,6 +39,10 @@ class EmergencyContactRepository:
         phone: str,
         relationship: str,
         priority: Optional[int] = None,
+        is_active: Optional[bool] = True,
+        notification_enabled: Optional[bool] = True,
+        live_location_enabled: Optional[bool] = True,
+        sms_enabled: Optional[bool] = False,
     ) -> Dict[str, Any]:
         client = self._client()
 
@@ -51,6 +56,10 @@ class EmergencyContactRepository:
             "phone": phone,
             "relationship": relationship,
             "priority": priority,
+            "is_active": is_active if is_active is not None else True,
+            "notification_enabled": notification_enabled if notification_enabled is not None else True,
+            "live_location_enabled": live_location_enabled if live_location_enabled is not None else True,
+            "sms_enabled": sms_enabled if sms_enabled is not None else False,
         }
         result = client.table(TABLE).insert(insert_fields).execute()
         logger.info(f"Emergency contact created for user_id={user_id}")
@@ -65,6 +74,10 @@ class EmergencyContactRepository:
         phone: Optional[str] = None,
         relationship: Optional[str] = None,
         priority: Optional[int] = None,
+        is_active: Optional[bool] = None,
+        notification_enabled: Optional[bool] = None,
+        live_location_enabled: Optional[bool] = None,
+        sms_enabled: Optional[bool] = None,
     ) -> Optional[Dict[str, Any]]:
         client = self._client()
         updates = {
@@ -74,9 +87,15 @@ class EmergencyContactRepository:
                 "phone": phone,
                 "relationship": relationship,
                 "priority": priority,
+                "is_active": is_active,
+                "notification_enabled": notification_enabled,
+                "live_location_enabled": live_location_enabled,
+                "sms_enabled": sms_enabled,
             }.items()
             if value is not None
         }
+        if updates:
+            updates["updated_at"] = datetime.now(timezone.utc).isoformat()
         if not updates:
             existing = (
                 client.table(TABLE)
@@ -98,6 +117,23 @@ class EmergencyContactRepository:
             logger.info(f"Emergency contact updated: {contact_id}")
             return result.data[0]
         return None
+
+    def get_active_contacts(self, user_id: str) -> List[Dict[str, Any]]:
+        """Contacts eligible to be notified at all: active and notifications not muted.
+        Per-event-type filtering on top of this list is handled by
+        NotificationPreferenceRepository.
+        """
+        client = self._client()
+        result = (
+            client.table(TABLE)
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("is_active", True)
+            .eq("notification_enabled", True)
+            .order("priority", desc=False)
+            .execute()
+        )
+        return result.data or []
 
     def delete(self, contact_id: str, user_id: str) -> bool:
         client = self._client()
