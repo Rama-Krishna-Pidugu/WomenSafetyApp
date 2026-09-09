@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   View,
   Text,
@@ -42,6 +43,7 @@ import {
 import * as Location from "expo-location";
 import { locationService } from "../modules/location/services/locationService";
 
+
 export type NearbyState = "list" | "map" | "loading";
 
 const CATEGORY_CHIPS: Array<{ id: "ALL" | EmergencyServiceCategory; label: string }> = [
@@ -60,7 +62,11 @@ const EMERGENCY_HOTLINES = [
   { id: "e3", label: "Ambulance Emergency", number: "108", tag: "Medical Dispatch" },
 ];
 
-const DEFAULT_USER_LOCATION: LatLng = { lat: 12.9716, lng: 77.5946 };
+// Used only when the device location cannot be obtained.
+const DEFAULT_USER_LOCATION: LatLng = {
+  lat: 16.5062,
+  lng: 80.6480,
+};
 
 export function NearbyHelpScreen({
   state: initialState = "list",
@@ -75,49 +81,122 @@ export function NearbyHelpScreen({
 }) {
   const [view, setView] = useState<"list" | "map">(initialState === "map" ? "map" : "list");
   const [selectedCategory, setSelectedCategory] = useState<EmergencyServiceCategory | "ALL">("ALL");
-  const [userLocation, setUserLocation] = useState<LatLng>(DEFAULT_USER_LOCATION);
+  const [userLocation, setUserLocation] = useState<LatLng | null>(null);
+  const [locationReady, setLocationReady] = useState(false);
   const [services, setServices] = useState<NormalizedEmergencyService[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const requestIdRef = useRef(0);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     (async () => {
       try {
         const loc = await locationService.getCurrentLocation();
+
         if (loc?.coordinates) {
-          setUserLocation({ lat: loc.coordinates.latitude, lng: loc.coordinates.longitude });
+          console.log(
+            "[NearbyHelpScreen] Using device GPS:",
+            loc.coordinates.latitude,
+            loc.coordinates.longitude
+          );
+
+          setUserLocation({
+            lat: loc.coordinates.latitude,
+            lng: loc.coordinates.longitude,
+          });
+        } else {
+          console.warn(
+            "[NearbyHelpScreen] GPS unavailable. Using Vijayawada fallback."
+          );
+
+          setUserLocation(DEFAULT_USER_LOCATION);
         }
       } catch (err) {
-        console.warn("[NearbyHelpScreen] Location acquire error:", err);
+        console.warn(
+          "[NearbyHelpScreen] Location acquire error. Using Vijayawada fallback:",
+          err
+        );
+
+        setUserLocation(DEFAULT_USER_LOCATION);
+      } finally {
+        setLocationReady(true);
       }
     })();
   }, []);
 
   const loadServices = async (force = false) => {
-    if (force) setRefreshing(true);
-    else setLoading(true);
+    if (!userLocation) {
+      return;
+    }
+
+    const requestId = ++requestIdRef.current;
+
+    if (force) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
 
     try {
+      console.log(
+        `[NearbyHelpScreen] Loading ${selectedCategory} services at`,
+        userLocation.lat,
+        userLocation.lng
+      );
+
       const results = await emergencyServicesService.getNearbyServices({
         latitude: userLocation.lat,
         longitude: userLocation.lng,
         radiusMeters: 5000,
-        category: selectedCategory === "ALL" ? undefined : selectedCategory,
+        category:
+          selectedCategory === "ALL" ? undefined : selectedCategory,
         forceRefresh: force,
       });
+
+      // A newer request has already started.
+      // Ignore this older request's result.
+      if (requestId !== requestIdRef.current) {
+        console.log(
+          "[NearbyHelpScreen] Ignoring stale service request:",
+          requestId
+        );
+        return;
+      }
+
+      console.log(
+        `[NearbyHelpScreen] Received ${results.length} services for ${selectedCategory}`
+      );
+
       setServices(results);
     } catch (err) {
-      console.warn("[NearbyHelpScreen] Failed to load services:", err);
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+
+      console.warn(
+        "[NearbyHelpScreen] Failed to load services:",
+        err
+      );
+
       setServices([]);
     } finally {
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+
       setLoading(false);
       setRefreshing(false);
     }
   };
 
   useEffect(() => {
+    if (!locationReady || !userLocation) {
+      return;
+    }
+
     loadServices(false);
-  }, [userLocation, selectedCategory]);
+  }, [locationReady, userLocation, selectedCategory]);
 
   const handleCall = (phone?: string) => {
     if (!phone) return;
@@ -162,24 +241,25 @@ export function NearbyHelpScreen({
 
   return (
     <View style={styles.screen}>
-      <NavBar
-        title="Nearby help"
-        onBack={onBack}
-        action={
-          <Pressable
-            onPress={() => setView(view === "map" ? "list" : "map")}
-            accessibilityLabel="Toggle view"
-            style={styles.toggleBtn}
-          >
-            {view === "map" ? (
-              <List size={18} color={colors.foreground} />
-            ) : (
-              <MapIcon size={18} color={colors.foreground} />
-            )}
-          </Pressable>
-        }
-      />
-
+      <View style={{ paddingTop: insets.top }}>
+        <NavBar
+          title="Nearby help"
+          onBack={onBack}
+          action={
+            <Pressable
+              onPress={() => setView(view === "map" ? "list" : "map")}
+              accessibilityLabel="Toggle view"
+              style={styles.toggleBtn}
+            >
+              {view === "map" ? (
+                <List size={18} color={colors.foreground} />
+              ) : (
+                <MapIcon size={18} color={colors.foreground} />
+              )}
+            </Pressable>
+          }
+        />
+      </View>
       <View style={styles.filtersRow}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersScroll}>
           {CATEGORY_CHIPS.map((f) => (
@@ -196,11 +276,13 @@ export function NearbyHelpScreen({
 
       {view === "map" ? (
         <View style={styles.mapContainer}>
-          <LiveTrackingMapView
-            userLocation={userLocation}
-            safeSpots={safeSpotMarkers}
-            isFullScreen={true}
-          />
+        {userLocation && (
+              <LiveTrackingMapView
+                userLocation={userLocation}
+                safeSpots={safeSpotMarkers}
+                isFullScreen={true}
+              />
+        )}
           {services[0] && (
             <Card style={styles.mapBottomCard}>
               <View style={styles.placeIconWrap}>
@@ -236,8 +318,13 @@ export function NearbyHelpScreen({
             {EMERGENCY_HOTLINES.map((h) => (
               <Card key={h.id} style={styles.hotlineCard}>
                 <View style={styles.hotlineHeader}>
-                  <Text style={styles.hotlineLabel}>{h.label}</Text>
-                  <Text style={styles.hotlineNumber}>{h.number}</Text>
+                  <Text style={styles.hotlineLabel} numberOfLines={2}>
+                    {h.label}
+                  </Text>
+
+                  <Text style={styles.hotlineNumber}>
+                    {h.number}
+                  </Text>
                 </View>
                 <Text style={styles.hotlineTag}>{h.tag}</Text>
                 <Pressable
@@ -254,8 +341,16 @@ export function NearbyHelpScreen({
 
           {/* Nearby Services List Section */}
           <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionHeading}>NEARBY LOCATIONS ({services.length})</Text>
-            {loading && <ActivityIndicator size="small" color={colors.primary} />}
+            <Text style={styles.sectionHeading}>
+              NEARBY LOCATIONS{!loading ? ` (${services.length})` : ""}
+            </Text>
+
+            {loading && (
+              <View style={styles.loadingIndicator}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={styles.loadingIndicatorText}>Finding nearby help...</Text>
+              </View>
+            )}
           </View>
 
           {services.length === 0 && !loading ? (
@@ -360,27 +455,53 @@ const styles = StyleSheet.create({
     borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    gap: 4,
+    gap: 6,
+    minHeight: 160,
   },
+
   hotlineHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: 2,
   },
-  hotlineLabel: { fontSize: 11, fontWeight: "600", color: colors.mutedForeground },
-  hotlineNumber: { fontSize: 16, fontWeight: "800", color: colors.emergency },
-  hotlineTag: { fontSize: 10, color: colors.mutedForeground, marginVertical: 2 },
+
+  hotlineLabel: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "600",
+    color: colors.mutedForeground,
+  },
+
+  hotlineNumber: {
+    fontSize: 20,
+    lineHeight: 24,
+    fontWeight: "800",
+    color: colors.emergency,
+  },
+
+  hotlineTag: {
+    fontSize: 10,
+    lineHeight: 14,
+    color: colors.mutedForeground,
+    marginVertical: 2,
+  },
+
   callHotlineBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
+    gap: 5,
     backgroundColor: colors.emergency,
-    paddingVertical: 6,
+    paddingVertical: 8,
     borderRadius: radii.sm,
-    marginTop: 4,
+    marginTop: "auto",
   },
-  callHotlineBtnText: { fontSize: 11, fontWeight: "700", color: colors.emergencyForeground },
+
+  callHotlineBtnText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.emergencyForeground,
+  },
   servicesList: { gap: 10 },
   serviceCard: {
     padding: 14,
@@ -388,8 +509,9 @@ const styles = StyleSheet.create({
     borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    gap: 12,
+    gap: 10,
   },
+
   serviceCardTopRow: {
     flexDirection: "row",
     gap: 12,
@@ -404,66 +526,90 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   serviceInfoWrap: { flex: 1 },
-  serviceName: { fontSize: 15, fontWeight: "700", color: colors.foreground },
-  serviceAddress: { fontSize: 12, color: colors.mutedForeground, marginTop: 2 },
-  serviceDistance: { fontSize: 12, fontWeight: "600", color: colors.primary, marginTop: 4 },
+  serviceName: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "700",
+    color: colors.foreground,
+  },
+
+  serviceAddress: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: colors.mutedForeground,
+    marginTop: 2,
+  },
+
+  serviceDistance: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+    color: colors.primary,
+    marginTop: 3,
+  },
+
   serviceActionsRow: {
     flexDirection: "row",
     justifyContent: "flex-end",
     gap: 8,
     borderTopWidth: 1,
     borderTopColor: colors.border,
-    paddingTop: 10,
+    paddingTop: 8,
   },
   actionBtnSecondary: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 7,
     borderRadius: radii.md,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  actionBtnSecondaryText: { fontSize: 12, fontWeight: "600", color: colors.foreground },
+
+  actionBtnSecondaryText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.foreground,
+  },
+
   actionBtnPrimary: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 7,
     borderRadius: radii.md,
     backgroundColor: colors.primary,
   },
   actionBtnPrimaryText: { fontSize: 12, fontWeight: "600", color: colors.primaryForeground },
-  emptyCard: {
-    padding: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.surface,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 6,
-  },
-  emptyCardTitle: { fontSize: 14, fontWeight: "700", color: colors.foreground },
-  emptyCardSub: { fontSize: 12, color: colors.mutedForeground, textAlign: "center" },
-  mapContainer: { flex: 1, position: "relative" },
-  mapBottomCard: {
-    position: "absolute",
-    bottom: 24,
-    left: 20,
-    right: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 14,
-    borderRadius: radii.xl,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 12,
-  },
+    emptyCard: {
+      paddingVertical: 28,
+      paddingHorizontal: 24,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surface,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: 8,
+    },
+
+    emptyCardTitle: {
+      fontSize: 15,
+      fontWeight: "700",
+      color: colors.foreground,
+      textAlign: "center",
+    },
+
+    emptyCardSub: {
+      fontSize: 12,
+      lineHeight: 18,
+      color: colors.mutedForeground,
+      textAlign: "center",
+      maxWidth: 300,
+    },
   placeIconWrap: {
     width: 40,
     height: 40,
@@ -483,4 +629,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+    loadingIndicator: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+
+    loadingIndicatorText: {
+      fontSize: 11,
+      color: colors.mutedForeground,
+    },
 });

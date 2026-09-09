@@ -336,7 +336,7 @@ function HomeRouteScreen({ navigation }: P<"Home">) {
         if (action === "Safe Route") navigation.navigate("SafeRoute");
         else if (action === "Live Map") navigation.navigate("SafeRoute");
         else if (action === "Share Live") navigation.navigate("FamilyLiveTracking", {});
-        else if (action === "Nearby Police" || action === "Hospitals") navigation.navigate("NearbyHelp");
+        else if (action === "Nearby Help") navigation.navigate("NearbyHelp");
         else if (action === "AI Assistant") navigation.navigate("Assistant");
         else if (action === "Report Area") navigation.navigate("Report");
         else if (action === "Contacts") navigation.navigate("Profile");
@@ -606,7 +606,7 @@ function MobileApp() {
   };
 
   return (
-    <Sentry.NavigationContainer ref={navigationRef} linking={linking}>
+    <NavigationContainer ref={navigationRef} linking={linking}>
       <Stack.Navigator initialRouteName="Splash" screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Splash" component={SplashRouteScreen} />
         <Stack.Screen name="Onboarding" component={OnboardingRouteScreen} />
@@ -655,7 +655,7 @@ function MobileApp() {
         <Stack.Screen name="FakeCall" component={FakeCallRouteScreen} />
         <Stack.Screen name="IncomingCall" component={IncomingCallRouteScreen} />
       </Stack.Navigator>
-    </Sentry.NavigationContainer>
+    </NavigationContainer>
   );
 }
 

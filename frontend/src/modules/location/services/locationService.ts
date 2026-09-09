@@ -222,8 +222,13 @@ export class LocationService {
 
   private getDefaultFallbackLocation(): LocationData {
     return {
-      coordinates: { latitude: 12.9716, longitude: 77.5946 },
-      address: { formattedAddress: 'Indiranagar 100 Ft Road, Bengaluru' },
+      coordinates: {
+        latitude: 16.5062,
+        longitude: 80.6480,
+      },
+      address: {
+        formattedAddress: 'Vijayawada, Andhra Pradesh',
+      },
       timestamp: new Date().toISOString(),
     };
   }
