@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useImperativeHandle, forwardRef } from "react";
+import React, { useEffect, useRef, useImperativeHandle, forwardRef, useMemo } from "react";
 import { View, StyleSheet, ActivityIndicator } from "react-native";
 import { WebView } from "react-native-webview";
 import { colors } from "../../theme/tokens";
@@ -46,6 +46,14 @@ export interface LiveTrackingMapViewProps {
   onMapReady?: () => void;
 }
 
+// Safely embeds a JS value as a string literal for injectJavaScript by JSON-encoding it
+// twice: once to produce the payload, once to produce a JS string literal containing it.
+// The injected side JSON.parses it back. Prevents string-escaping bugs from user/OSM data
+// (place names, addresses) reaching the WebView bridge.
+function toInjectedLiteral(value: unknown): string {
+  return JSON.stringify(JSON.stringify(value ?? null));
+}
+
 export const LiveTrackingMapView = forwardRef<LiveTrackingMapViewRef, LiveTrackingMapViewProps>(
   (
     {
@@ -83,6 +91,11 @@ export const LiveTrackingMapView = forwardRef<LiveTrackingMapViewRef, LiveTracki
       },
     }));
 
+    // Built once per mount from whatever props were present on first render. All later prop
+    // changes are pushed into the page through the window.update*() bridge below instead of
+    // regenerating this HTML — regenerating it on every location tick used to hand WebView a
+    // brand-new `source.html` string each time, which forces a full page reload (map resets
+    // to its initial zoom/center, markers flash) instead of the smooth pan the bridge gives.
     const generateMapHtml = () => {
       const destJson = destination ? JSON.stringify(destination) : "null";
       const originJson = origin ? JSON.stringify(origin) : "null";
@@ -94,10 +107,13 @@ export const LiveTrackingMapView = forwardRef<LiveTrackingMapViewRef, LiveTracki
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
   <style>
     html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; background: #0f172a; overflow: hidden; }
-    
+
     .user-avatar-marker {
       position: relative;
       width: 36px;
@@ -115,7 +131,7 @@ export const LiveTrackingMapView = forwardRef<LiveTrackingMapViewRef, LiveTracki
       box-shadow: 0 0 20px rgba(99, 102, 241, 0.7), 0 4px 12px rgba(0, 0, 0, 0.35);
       transition: transform 0.3s ease;
     }
-    
+
     .user-pulse-ring {
       position: absolute;
       top: -12px;
@@ -137,14 +153,15 @@ export const LiveTrackingMapView = forwardRef<LiveTrackingMapViewRef, LiveTracki
       border-right: 6px solid transparent;
       border-bottom: 8px solid #EC4899;
       pointer-events: none;
+      transition: transform 0.25s ease;
     }
-    
+
     @keyframes pulseGlow {
       0% { transform: scale(0.6); opacity: 0.95; }
       70% { transform: scale(1.35); opacity: 0.15; }
       100% { transform: scale(1.5); opacity: 0; }
     }
-    
+
     .dest-pin-marker {
       background: linear-gradient(135deg, #EC4899, #DB2777);
       border: 2px solid #ffffff;
@@ -174,7 +191,7 @@ export const LiveTrackingMapView = forwardRef<LiveTrackingMapViewRef, LiveTracki
       font-weight: 700;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
     }
- 
+
     .safe-spot-pin {
       width: 28px;
       height: 28px;
@@ -189,6 +206,22 @@ export const LiveTrackingMapView = forwardRef<LiveTrackingMapViewRef, LiveTracki
     .spot-police { background: #3B82F6; }
     .spot-hospital { background: #EF4444; }
     .spot-shelter { background: #8B5CF6; }
+
+    .cluster-badge {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #334155, #1e293b);
+      border: 2.5px solid #ffffff;
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-weight: 800;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5);
+    }
 
     .leaflet-popup-content-wrapper {
       background: #1e293b;
@@ -208,13 +241,13 @@ export const LiveTrackingMapView = forwardRef<LiveTrackingMapViewRef, LiveTracki
   <div id="map"></div>
   <script>
     var map = L.map('map', { zoomControl: false, attributionControl: false }).setView([${userLocation.lat}, ${userLocation.lng}], 15);
-    
+
     // OpenStreetMap standard tile layer (100% Free, No API Key Required)
     var osmTiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap contributors'
     });
-    
+
     osmTiles.addTo(map);
 
     osmTiles.on('tileerror', function() {
@@ -226,7 +259,7 @@ export const LiveTrackingMapView = forwardRef<LiveTrackingMapViewRef, LiveTracki
     });
 
     // Custom user avatar & pulse marker
-    var avatarHtml = '<div class="user-avatar-marker"><div class="heading-pointer"></div><div>${userAvatarInitials}</div><div class="user-pulse-ring"></div></div>';
+    var avatarHtml = '<div class="user-avatar-marker"><div class="heading-pointer" id="heading-pointer"></div><div>${userAvatarInitials}</div><div class="user-pulse-ring"></div></div>';
     var userIcon = L.divIcon({
       className: '',
       html: avatarHtml,
@@ -237,81 +270,135 @@ export const LiveTrackingMapView = forwardRef<LiveTrackingMapViewRef, LiveTracki
     var userMarker = L.marker([${userLocation.lat}, ${userLocation.lng}], { icon: userIcon }).addTo(map);
     userMarker.bindPopup('<div class="popup-title">${isFamilyView ? "Family Member" : "Your Live Location"}</div><div class="popup-subtitle">GPS Tracked · Real-time Mode</div>');
 
-    // Origin Marker
-    var origin = ${originJson};
-    if (origin) {
-      var originIcon = L.divIcon({
-        className: '',
-        html: '<div class="origin-pin-marker">●</div>',
-        iconSize: [22, 22],
-        iconAnchor: [11, 11]
-      });
-      L.marker([origin.lat, origin.lng], { icon: originIcon }).addTo(map).bindPopup('<div class="popup-title">Start Point</div><div class="popup-subtitle">Trip Origin</div>');
+    function applyHeading(deg) {
+      var el = document.getElementById('heading-pointer');
+      if (el) { el.style.transform = 'rotate(' + deg + 'deg)'; }
     }
+    applyHeading(${heading});
 
-    // Destination Marker
-    var destMarker = null;
-    var destination = ${destJson};
-    if (destination) {
-      var destIcon = L.divIcon({
+    function makeDestIcon() {
+      return L.divIcon({
         className: '',
         html: '<div class="dest-pin-marker">🏁</div>',
         iconSize: [28, 28],
         iconAnchor: [14, 14]
       });
-      destMarker = L.marker([destination.lat, destination.lng], { icon: destIcon }).addTo(map);
-      destMarker.bindPopup('<div class="popup-title">Destination</div><div class="popup-subtitle">Safe Haven Target</div>');
     }
+
+    function makeOriginIcon() {
+      return L.divIcon({
+        className: '',
+        html: '<div class="origin-pin-marker">●</div>',
+        iconSize: [22, 22],
+        iconAnchor: [11, 11]
+      });
+    }
+
+    function makeSafeSpotIcon(type) {
+      var spotClass = type === 'police' ? 'spot-police' : type === 'hospital' ? 'spot-hospital' : 'spot-shelter';
+      var emoji = type === 'police' ? '👮' : type === 'hospital' ? '🏥' : '🛡️';
+      return L.divIcon({ className: '', html: '<div class="safe-spot-pin ' + spotClass + '">' + emoji + '</div>', iconSize: [28, 28], iconAnchor: [14, 14] });
+    }
+
+    // Origin marker (redrawn in place, never recreates the map)
+    var originMarker = null;
+    function renderOrigin(o) {
+      if (originMarker) { map.removeLayer(originMarker); originMarker = null; }
+      if (o) {
+        originMarker = L.marker([o.lat, o.lng], { icon: makeOriginIcon() }).addTo(map).bindPopup('<div class="popup-title">Start Point</div><div class="popup-subtitle">Trip Origin</div>');
+      }
+    }
+    renderOrigin(${originJson});
+    window.updateOrigin = function(originJsonStr) {
+      renderOrigin(JSON.parse(originJsonStr));
+    };
+
+    // Destination marker
+    var destMarker = null;
+    function renderDestination(d) {
+      if (destMarker) { map.removeLayer(destMarker); destMarker = null; }
+      if (d) {
+        destMarker = L.marker([d.lat, d.lng], { icon: makeDestIcon() }).addTo(map).bindPopup('<div class="popup-title">Destination</div><div class="popup-subtitle">Safe Haven Target</div>');
+      }
+    }
+    renderDestination(${destJson});
+    window.updateDestination = function(destJsonStr) {
+      renderDestination(JSON.parse(destJsonStr));
+    };
 
     // Geofence circle
     var geofenceCircle = null;
-    if (${showGeofence}) {
-      geofenceCircle = L.circle([${userLocation.lat}, ${userLocation.lng}], {
-        color: '#6366F1',
-        fillColor: '#6366F1',
-        fillOpacity: 0.12,
-        weight: 2,
-        dashArray: '4, 6',
-        radius: ${geofenceRadiusMeters}
-      }).addTo(map);
-    }
-
-    // Polylines
-    var polylines = [];
-    var routesData = ${routesJson};
-    if (routesData && routesData.length > 0) {
-      routesData.forEach(function(r) {
-        var pl = L.polyline(r.points, {
-          color: r.color || (r.isPrimary ? '#6366F1' : '#94A3B8'),
-          weight: r.isPrimary ? 6 : 4,
-          dashArray: r.isPrimary ? null : '6, 8',
-          opacity: r.isPrimary ? 0.95 : 0.65
+    function renderGeofence(show, radius) {
+      if (geofenceCircle) { map.removeLayer(geofenceCircle); geofenceCircle = null; }
+      if (show) {
+        geofenceCircle = L.circle(userMarker.getLatLng(), {
+          color: '#6366F1',
+          fillColor: '#6366F1',
+          fillOpacity: 0.12,
+          weight: 2,
+          dashArray: '4, 6',
+          radius: radius
         }).addTo(map);
-        polylines.push(pl);
-      });
-      
-      // Auto fit bounds if route exists
-      if (routesData[0] && routesData[0].points && routesData[0].points.length > 1) {
+      }
+    }
+    renderGeofence(${showGeofence}, ${geofenceRadiusMeters});
+    window.updateGeofence = function(show, radius) {
+      renderGeofence(show, radius);
+    };
+
+    // Route polylines, grouped so they can be cleared and redrawn without touching the map
+    var routeLayer = L.layerGroup().addTo(map);
+    function renderRoutes(routesData) {
+      routeLayer.clearLayers();
+      if (routesData && routesData.length > 0) {
+        routesData.forEach(function(r) {
+          L.polyline(r.points, {
+            color: r.color || (r.isPrimary ? '#6366F1' : '#94A3B8'),
+            weight: r.isPrimary ? 6 : 4,
+            dashArray: r.isPrimary ? null : '6, 8',
+            opacity: r.isPrimary ? 0.95 : 0.65
+          }).addTo(routeLayer);
+        });
         try {
           map.fitBounds(routesData[0].points, { padding: [40, 40], maxZoom: 16 });
         } catch(e) {}
       }
     }
+    renderRoutes(${routesJson});
+    window.updateRoutes = function(routesJsonStr) {
+      renderRoutes(JSON.parse(routesJsonStr));
+    };
 
-    // Safe spots
-    var safeSpotsData = ${safeSpotsJson};
-    if (safeSpotsData && safeSpotsData.length > 0) {
-      safeSpotsData.forEach(function(spot) {
-        var spotClass = spot.type === 'police' ? 'spot-police' : spot.type === 'hospital' ? 'spot-hospital' : 'spot-shelter';
-        var emoji = spot.type === 'police' ? '👮' : spot.type === 'hospital' ? '🏥' : '🛡️';
-        var iconHtml = '<div class="safe-spot-pin ' + spotClass + '">' + emoji + '</div>';
-        var spotIcon = L.divIcon({ className: '', html: iconHtml, iconSize: [28, 28], iconAnchor: [14, 14] });
-        
-        L.marker([spot.lat, spot.lng], { icon: spotIcon }).addTo(map).bindPopup(
-          '<div class="popup-title">' + spot.name + '</div><div class="popup-subtitle">Safe Place (' + spot.type.toUpperCase() + ')</div>'
-        );
-      });
+    // Safe spots, clustered so a dense list of nearby results (police/hospital/shelter)
+    // collapses into count bubbles instead of overlapping pins at city zoom levels.
+    var safeSpotCluster = L.markerClusterGroup({
+      maxClusterRadius: 50,
+      spiderfyOnMaxZoom: true,
+      showCoverageOnHover: false,
+      iconCreateFunction: function(cluster) {
+        return L.divIcon({
+          html: '<div class="cluster-badge">' + cluster.getChildCount() + '</div>',
+          className: '',
+          iconSize: [36, 36]
+        });
+      }
+    });
+    map.addLayer(safeSpotCluster);
+
+    function renderSafeSpots(spots) {
+      safeSpotCluster.clearLayers();
+      if (spots && spots.length > 0) {
+        spots.forEach(function(spot) {
+          var marker = L.marker([spot.lat, spot.lng], { icon: makeSafeSpotIcon(spot.type) });
+          marker.bindPopup('<div class="popup-title">' + spot.name + '</div><div class="popup-subtitle">Safe Place (' + spot.type.toUpperCase() + ')</div>');
+          safeSpotCluster.addLayer(marker);
+        });
+      }
     }
+    renderSafeSpots(${safeSpotsJson});
+    window.updateSafeSpots = function(spotsJsonStr) {
+      renderSafeSpots(JSON.parse(spotsJsonStr));
+    };
 
     // Dynamic JS Bridge Controls
     window.updateUserLocation = function(lat, lng) {
@@ -321,6 +408,10 @@ export const LiveTrackingMapView = forwardRef<LiveTrackingMapViewRef, LiveTracki
       if (geofenceCircle) {
         geofenceCircle.setLatLng(newPos);
       }
+    };
+
+    window.updateHeading = function(deg) {
+      applyHeading(deg);
     };
 
     window.recenterMap = function(lat, lng) {
@@ -339,20 +430,61 @@ export const LiveTrackingMapView = forwardRef<LiveTrackingMapViewRef, LiveTracki
 </html>`;
     };
 
-    // Push updates
+    // Empty deps: intentionally builds the page once from whichever props were present at
+    // mount. Every later change is pushed via the window.update*() bridge (effects below)
+    // instead of regenerating this string, which would hand WebView a new `source.html` and
+    // force a full reload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const mapHtml = useMemo(() => generateMapHtml(), []);
+
     useEffect(() => {
-      if (webViewRef.current && userLocation) {
-        const js = `if (window.updateUserLocation) { window.updateUserLocation(${userLocation.lat}, ${userLocation.lng}); } true;`;
-        webViewRef.current.injectJavaScript(js);
-      }
+      webViewRef.current?.injectJavaScript(
+        `if (window.updateUserLocation) { window.updateUserLocation(${userLocation.lat}, ${userLocation.lng}); } true;`
+      );
     }, [userLocation.lat, userLocation.lng]);
+
+    useEffect(() => {
+      webViewRef.current?.injectJavaScript(
+        `if (window.updateHeading) { window.updateHeading(${heading}); } true;`
+      );
+    }, [heading]);
+
+    useEffect(() => {
+      webViewRef.current?.injectJavaScript(
+        `if (window.updateSafeSpots) { window.updateSafeSpots(${toInjectedLiteral(safeSpots)}); } true;`
+      );
+    }, [safeSpots]);
+
+    useEffect(() => {
+      webViewRef.current?.injectJavaScript(
+        `if (window.updateRoutes) { window.updateRoutes(${toInjectedLiteral(routes)}); } true;`
+      );
+    }, [routes]);
+
+    useEffect(() => {
+      webViewRef.current?.injectJavaScript(
+        `if (window.updateDestination) { window.updateDestination(${toInjectedLiteral(destination ?? null)}); } true;`
+      );
+    }, [destination?.lat, destination?.lng]);
+
+    useEffect(() => {
+      webViewRef.current?.injectJavaScript(
+        `if (window.updateOrigin) { window.updateOrigin(${toInjectedLiteral(origin ?? null)}); } true;`
+      );
+    }, [origin?.lat, origin?.lng]);
+
+    useEffect(() => {
+      webViewRef.current?.injectJavaScript(
+        `if (window.updateGeofence) { window.updateGeofence(${showGeofence}, ${geofenceRadiusMeters}); } true;`
+      );
+    }, [showGeofence, geofenceRadiusMeters]);
 
     return (
       <View style={[styles.container, isFullScreen ? styles.fullScreen : { height: height as any }]}>
         <WebView
           ref={webViewRef}
           originWhitelist={["*"]}
-          source={{ html: generateMapHtml() }}
+          source={{ html: mapHtml }}
           style={styles.webView}
           scrollEnabled={false}
           onLoadEnd={onMapReady}

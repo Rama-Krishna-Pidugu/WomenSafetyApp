@@ -17,12 +17,16 @@ const SENTRY_DSN =
   process.env.EXPO_PUBLIC_SENTRY_DSN ||
   "https://1a49203a7a9168221a0f2e5e217ea18e@o4511977779036161.ingest.us.sentry.io/4511977802825728";
 
+// Sentry v7 navigation integration — created once at module level, registered in RootStack onReady
+export const sentryNavIntegration = Sentry.reactNavigationIntegration();
+
 Sentry.init({
   dsn: SENTRY_DSN,
   sendDefaultPii: true,
   tracesSampleRate: __DEV__ ? 1.0 : 0.2,
   environment: __DEV__ ? "development" : "production",
   debug: __DEV__,
+  integrations: [sentryNavIntegration],
 });
 
 function App() {

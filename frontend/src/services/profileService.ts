@@ -38,6 +38,12 @@ export function clearCurrentProfile(): void {
   activeProfileUid = null;
 }
 
+// Synchronous read of whatever profile was last loaded via getMyProfile()/saveProfile() —
+// for call sites that need a display name/detail right now and can't await a network call.
+export function getCachedProfile(): UserProfile | null {
+  return activeProfileState;
+}
+
 export async function getMyProfile(forceRefreshToken = false): Promise<UserProfile | null> {
   const firebaseUser = auth.currentUser;
 

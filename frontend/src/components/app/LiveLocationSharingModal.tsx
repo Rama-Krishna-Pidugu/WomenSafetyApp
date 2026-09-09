@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -56,20 +56,29 @@ export function LiveLocationSharingModal({
   onClose,
   userLocation,
   destination,
-  destinationName = "Home",
+  destinationName,
   routes = [],
-  sessionId = "trk_demo",
+  sessionId: sessionIdProp,
   isAlreadySharing = false,
   onSharingStateChange,
 }: LiveLocationSharingModalProps) {
   const { contacts } = useEmergencyContacts();
   const [isSharingActive, setIsSharingActive] = useState(isAlreadySharing);
   const [selectedDuration, setSelectedDuration] = useState("30m");
+  const selectedDurationOption = DURATION_OPTIONS.find((d) => d.id === selectedDuration) ?? DURATION_OPTIONS[1];
   const [selectedContactIds, setSelectedContactIds] = useState<string[]>(() =>
     contacts.slice(0, 3).map((c) => c.id)
   );
-  const [startTime] = useState("8:42 PM");
-  const [viewersCount, setViewersCount] = useState(3);
+  // A real, unique session id if the caller didn't supply one — never a shared "demo"
+  // channel that every caller without a sessionId would otherwise collide on.
+  const [fallbackSessionId] = useState(() => `trk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+  const sessionId = sessionIdProp ?? fallbackSessionId;
+  const [startTime, setStartTime] = useState<string | null>(
+    isAlreadySharing ? new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : null
+  );
+  // The real, verifiable number is how many contacts the link was actually shared with —
+  // there is no live-viewer telemetry to report an actual "watching now" count.
+  const sharedWithCount = selectedContactIds.length;
 
   const toggleContact = (id: string) => {
     setSelectedContactIds((prev) =>
@@ -79,19 +88,22 @@ export function LiveLocationSharingModal({
 
   const handleStartSharing = async () => {
     try {
-      await startLiveLocationSharing(sessionId, "Priya Sharma");
+      await startLiveLocationSharing(sessionId);
       setIsSharingActive(true);
+      setStartTime(new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
       onSharingStateChange?.(true);
-      
+
       // Prompt native share immediately for convenience
       const trackingUrl = getPublicTrackingUrl(sessionId);
+      const destinationClause = destinationName ? ` to ${destinationName}` : "";
       await Share.share({
-        message: `🛡️ Live Safety Tracking: Follow my journey live to ${destinationName}: ${trackingUrl}`,
+        message: `🛡️ Live Safety Tracking: Follow my journey live${destinationClause}: ${trackingUrl}`,
         title: "Live Location Tracking",
       });
     } catch (e) {
       console.warn("Share live location error:", e);
       setIsSharingActive(true);
+      setStartTime((prev) => prev ?? new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
       onSharingStateChange?.(true);
     }
   };
@@ -99,20 +111,36 @@ export function LiveLocationSharingModal({
   const handleStopSharing = async () => {
     try {
       await stopLiveLocationSharing(sessionId);
-      setIsSharingActive(false);
-      onSharingStateChange?.(false);
     } catch (e) {
       console.warn("Stop live location error:", e);
+    } finally {
       setIsSharingActive(false);
+      setStartTime(null);
       onSharingStateChange?.(false);
     }
   };
 
+  // Real auto-stop: the duration picker used to be cosmetic (nothing enforced it). Now
+  // picking anything other than "Until journey ends" actually stops sharing after that
+  // many minutes, matching what the privacy note tells the user.
+  const handleStopSharingRef = useRef(handleStopSharing);
+  handleStopSharingRef.current = handleStopSharing;
+
+  useEffect(() => {
+    if (!isSharingActive || selectedDurationOption.minutes <= 0) return;
+    const timer = setTimeout(() => {
+      void handleStopSharingRef.current();
+    }, selectedDurationOption.minutes * 60 * 1000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSharingActive, selectedDurationOption.minutes]);
+
   const handleNativeShare = async () => {
     const trackingUrl = getPublicTrackingUrl(sessionId);
+    const destinationClause = destinationName ? ` to ${destinationName}` : "";
     try {
       await Share.share({
-        message: `🛡️ Live Safety Tracking: Follow my journey live to ${destinationName}: ${trackingUrl}`,
+        message: `🛡️ Live Safety Tracking: Follow my journey live${destinationClause}: ${trackingUrl}`,
         title: "Live Location Tracking",
       });
     } catch (err) {
@@ -164,7 +192,9 @@ export function LiveLocationSharingModal({
                 <View style={styles.activeHeaderText}>
                   <Text style={styles.activeTitle}>Live location is being shared</Text>
                   <Text style={styles.activeSubtitle}>
-                    {viewersCount} trusted contacts can see your live route
+                    {sharedWithCount > 0
+                      ? `Shared with ${sharedWithCount} trusted contact${sharedWithCount === 1 ? "" : "s"}`
+                      : "Link is live — send it below to share it"}
                   </Text>
                 </View>
                 <Badge tone="success">Broadcasting</Badge>
@@ -174,12 +204,12 @@ export function LiveLocationSharingModal({
                 <View style={styles.statBox}>
                   <Clock size={14} color={colors.mutedForeground} />
                   <Text style={styles.statLabel}>Started</Text>
-                  <Text style={styles.statValue}>{startTime}</Text>
+                  <Text style={styles.statValue}>{startTime ?? "—"}</Text>
                 </View>
                 <View style={styles.statBox}>
                   <Users size={14} color={colors.primary} />
-                  <Text style={styles.statLabel}>Watching</Text>
-                  <Text style={styles.statValue}>{viewersCount} people</Text>
+                  <Text style={styles.statLabel}>Shared with</Text>
+                  <Text style={styles.statValue}>{sharedWithCount}</Text>
                 </View>
                 <View style={styles.statBox}>
                   <Radio size={14} color={colors.success} />
@@ -212,9 +242,11 @@ export function LiveLocationSharingModal({
               <View style={styles.section}>
                 <View style={styles.sectionHeaderRow}>
                   <Text style={styles.sectionTitle}>Sharing with</Text>
-                  <Text style={styles.sectionActionText}>
-                    {selectedContactIds.length} of {contacts.length || 3} selected
-                  </Text>
+                  {contacts.length > 0 && (
+                    <Text style={styles.sectionActionText}>
+                      {selectedContactIds.length} of {contacts.length} selected
+                    </Text>
+                  )}
                 </View>
 
                 <View style={styles.contactsRow}>
@@ -247,38 +279,12 @@ export function LiveLocationSharingModal({
                       );
                     })
                   ) : (
-                    <View style={styles.mockContactsRow}>
-                      {[
-                        { id: "c1", name: "Mom", relation: "Family", initials: "MO" },
-                        { id: "c2", name: "Priya", relation: "Sister", initials: "PR" },
-                        { id: "c3", name: "Rahul", relation: "Friend", initials: "RA" },
-                      ].map((c) => {
-                        const isSelected = selectedContactIds.includes(c.id);
-                        return (
-                          <Pressable
-                            key={c.id}
-                            onPress={() => toggleContact(c.id)}
-                            style={[styles.contactAvatarCard, isSelected && styles.contactAvatarCardSelected]}
-                          >
-                            <View style={[styles.avatarCircle, isSelected && styles.avatarCircleSelected]}>
-                              <Text style={[styles.avatarInitials, isSelected && styles.avatarInitialsSelected]}>
-                                {c.initials}
-                              </Text>
-                              {isSelected && (
-                                <View style={styles.avatarCheckBadge}>
-                                  <Check size={10} color="#fff" strokeWidth={3} />
-                                </View>
-                              )}
-                            </View>
-                            <Text style={styles.contactCardName} numberOfLines={1}>
-                              {c.name}
-                            </Text>
-                            <Text style={styles.contactCardRelation} numberOfLines={1}>
-                              {c.relation}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
+                    <View style={styles.noContactsBox}>
+                      <Users size={20} color={colors.mutedForeground} />
+                      <Text style={styles.noContactsTitle}>No emergency contacts yet</Text>
+                      <Text style={styles.noContactsSub}>
+                        Add trusted contacts from your Safety Circle to share your live location with them.
+                      </Text>
                     </View>
                   )}
                 </View>
@@ -311,7 +317,9 @@ export function LiveLocationSharingModal({
                 <View style={{ flex: 1 }}>
                   <Text style={styles.privacyNoteTitle}>Location updates automatically</Text>
                   <Text style={styles.privacyNoteBody}>
-                    Updates stop automatically when you reach {destinationName} or when duration ends.
+                    {selectedDurationOption.minutes > 0
+                      ? `Sharing stops automatically after ${selectedDurationOption.label}. You can also stop it any time.`
+                      : "Sharing continues until you stop it — tap \"Stop Live Sharing\" when you're safe."}
                   </Text>
                 </View>
               </View>
@@ -439,11 +447,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
   },
-  mockContactsRow: {
-    flexDirection: "row",
-    gap: 12,
+  noContactsBox: {
     flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    padding: 20,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.lg,
   },
+  noContactsTitle: { fontSize: 13, fontWeight: "700", color: colors.foreground },
+  noContactsSub: { fontSize: 12, color: colors.mutedForeground, textAlign: "center" },
   contactAvatarCard: {
     flex: 1,
     alignItems: "center",

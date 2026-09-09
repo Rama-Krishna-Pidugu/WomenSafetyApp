@@ -187,8 +187,8 @@ export class NearbyPlacesService {
     currentCoords?: Coordinates
   ): string {
     if (!places || places.length === 0) {
-      const locationText = currentAddress || (currentCoords ? `${currentCoords.latitude.toFixed(4)}, ${currentCoords.longitude.toFixed(4)}` : 'Indiranagar, Bengaluru');
-      return `POLICE INFORMATION\n\nNearest police facility:\nMunicipal Police Facility (Station name unindexed)\n\nDistance:\n0.8 km\n\nLocation:\n${locationText}\n\nEmergency Helpline:\nDial 112 or 100 for instant police dispatch.`;
+      const locationText = currentAddress || (currentCoords ? `${currentCoords.latitude.toFixed(4)}, ${currentCoords.longitude.toFixed(4)}` : 'your current location');
+      return `POLICE INFORMATION\n\nNo verified police station found near ${locationText} in OpenStreetMap's data.\n\nEmergency Helpline:\nDial 112 or 100 for instant police dispatch — dispatch does not depend on this lookup.`;
     }
 
     if (places.length === 1) {
@@ -212,8 +212,8 @@ export class NearbyPlacesService {
     currentCoords?: Coordinates
   ): string {
     if (!places || places.length === 0) {
-      const locationText = currentAddress || (currentCoords ? `${currentCoords.latitude.toFixed(4)}, ${currentCoords.longitude.toFixed(4)}` : 'Indiranagar, Bengaluru');
-      return `HOSPITAL & MEDICAL AID\n\nNearest medical facility:\nEmergency Trauma & Medical Center (Name unindexed)\n\nDistance:\n1.2 km\n\nLocation:\n${locationText}\n\nEmergency Ambulance:\nDial 108 or 102 for emergency medical services.`;
+      const locationText = currentAddress || (currentCoords ? `${currentCoords.latitude.toFixed(4)}, ${currentCoords.longitude.toFixed(4)}` : 'your current location');
+      return `HOSPITAL & MEDICAL AID\n\nNo verified hospital found near ${locationText} in OpenStreetMap's data.\n\nEmergency Ambulance:\nDial 108 or 102 for emergency medical services — dispatch does not depend on this lookup.`;
     }
 
     if (places.length === 1) {

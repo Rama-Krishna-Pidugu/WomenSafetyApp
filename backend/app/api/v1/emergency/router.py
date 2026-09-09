@@ -40,6 +40,10 @@ async def add_emergency_contact(payload: EmergencyContactCreate, current_uid: st
             phone=payload.phone,
             relationship=payload.relationship,
             priority=payload.priority,
+            is_active=payload.is_active,
+            notification_enabled=payload.notification_enabled,
+            live_location_enabled=payload.live_location_enabled,
+            sms_enabled=payload.sms_enabled,
         )
         logger.info(f"Emergency contact added successfully for user_id={user_id}")
         return contact
@@ -76,6 +80,10 @@ async def update_emergency_contact(
             phone=payload.phone,
             relationship=payload.relationship,
             priority=payload.priority,
+            is_active=payload.is_active,
+            notification_enabled=payload.notification_enabled,
+            live_location_enabled=payload.live_location_enabled,
+            sms_enabled=payload.sms_enabled,
         )
         if not contact:
             raise HTTPException(status_code=404, detail="Contact not found")
@@ -111,10 +119,21 @@ async def trigger_sos_incident(
         raise HTTPException(status_code=403, detail="Cannot trigger an SOS for another user")
 
     notification_service = NotificationService(db)
+    # Notifies the user's own other devices (existing behavior).
     notification_service.send_sos_alert_to_user(
         user_id=payload.user_id,
         title="SOS TRIGGERED",
         body=f"Emergency SOS triggered at Lat: {payload.latitude}, Lng: {payload.longitude}"
+    )
+    # Notifies the user's Safety Circle (trusted contacts) - this is the new path; previously
+    # nothing in this endpoint reached the Safety Circle at all.
+    notification_service.dispatch_safety_event(
+        user_id=payload.user_id,
+        event_type="SOS_ACTIVATED",
+        title="🚨 SOS Activated",
+        body=f"Your trusted contact triggered an SOS at Lat: {payload.latitude}, Lng: {payload.longitude}",
+        data={"latitude": payload.latitude, "longitude": payload.longitude},
+        severity="CRITICAL",
     )
 
     return SOSIncidentResponse(

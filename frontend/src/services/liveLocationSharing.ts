@@ -6,7 +6,10 @@
  */
 
 import * as Location from "expo-location";
+import * as Battery from "expo-battery";
 import { getPublicTrackingUrl } from "../utils/trackingUrl";
+import { getCachedProfile } from "./profileService";
+import { safetyCircleApi } from "../api/safetyCircleApi";
 
 export interface LiveLocationData {
   sessionId: string;
@@ -30,12 +33,26 @@ let updateIntervalTimer: ReturnType<typeof setInterval> | null = null;
 let currentCoords: { lat: number; lng: number } | null = null;
 
 /**
+ * Reads the real device battery level (0-100), or undefined if the platform/device
+ * doesn't expose one (e.g. some emulators) — never a guessed number.
+ */
+async function readBatteryLevel(): Promise<number | undefined> {
+  try {
+    const level = await Battery.getBatteryLevelAsync();
+    if (level == null || level < 0) return undefined;
+    return Math.round(level * 100);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Starts watching GPS position and pushes location updates every 4.5 seconds.
  * Returns the shareable tracking link.
  */
 export async function startLiveLocationSharing(
   sessionId: string,
-  userName: string = "Priya Sharma"
+  userName: string = getCachedProfile()?.full_name || "User"
 ): Promise<string> {
   // Clear any existing session timers
   if (updateIntervalTimer) {
@@ -62,6 +79,17 @@ export async function startLiveLocationSharing(
       };
       await pushLocationUpdate(sessionId, userName, currentCoords, true);
     }
+
+    // Record that live sharing started as a real, persisted, timestamped event — visible
+    // in the Safety Circle's audit trail — and notify the circle. Best-effort: a failure
+    // here must never block the GPS sharing itself, which is the safety-critical path.
+    safetyCircleApi
+      .emitSafetyEvent(
+        "LIVE_LOCATION_STARTED",
+        { sessionId, lat: currentCoords?.lat, lng: currentCoords?.lng },
+        `${sessionId}_start`
+      )
+      .catch((err) => console.warn("[liveLocationSharing] Failed to record LIVE_LOCATION_STARTED:", err));
 
     // Subscribe to continuous GPS updates
     watchSubscription = await Location.watchPositionAsync(
@@ -91,6 +119,8 @@ export async function startLiveLocationSharing(
 
 /**
  * Stops GPS watching and update timer, marking the session active: false.
+ * Only patches the `active`/`updatedAt` fields — never overwrites lat/lng, so a session
+ * with no GPS fix yet never gets a fabricated coordinate written to it.
  */
 export async function stopLiveLocationSharing(sessionId: string): Promise<void> {
   if (updateIntervalTimer) {
@@ -101,13 +131,21 @@ export async function stopLiveLocationSharing(sessionId: string): Promise<void> 
     watchSubscription.remove();
     watchSubscription = null;
   }
+  currentCoords = null;
 
-  // Push final inactive status
-  if (currentCoords) {
-    await pushLocationUpdate(sessionId, "User", currentCoords, false);
-  } else {
-    await pushLocationUpdate(sessionId, "User", { lat: 12.9716, lng: 77.5946 }, false);
+  try {
+    await fetch(trackingSessionUrl(sessionId), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active: false, updatedAt: Date.now() }),
+    });
+  } catch (err) {
+    console.warn("[liveLocationSharing] Failed to mark session inactive:", err);
   }
+
+  safetyCircleApi
+    .emitSafetyEvent("LIVE_LOCATION_STOPPED", { sessionId }, `${sessionId}_stop`)
+    .catch((err) => console.warn("[liveLocationSharing] Failed to record LIVE_LOCATION_STOPPED:", err));
 }
 
 /**
@@ -127,12 +165,14 @@ export async function pushLocationUpdate(
   coords: { lat: number; lng: number },
   active: boolean
 ): Promise<void> {
+  const batteryLevel = await readBatteryLevel();
+
   const payload = {
     lat: coords.lat,
     lng: coords.lng,
     updatedAt: Date.now(),
     userName: userName,
-    batteryLevel: 88,
+    ...(batteryLevel !== undefined ? { batteryLevel } : {}),
     active: active,
   };
 

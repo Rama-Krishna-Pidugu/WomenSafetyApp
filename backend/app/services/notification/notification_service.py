@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 from app.services.firebase.firebase_service import FirebaseService, is_invalid_token_error
 from app.repositories.notification_repository import NotificationRepository
 from app.repositories.device_repository import DeviceRepository
+from app.repositories.safety_event_repository import SafetyEventRepository
+from app.services.safety_circle.safety_circle_service import SafetyCircleService
 from app.core.logging import logger
 
 class NotificationService:
@@ -10,6 +12,9 @@ class NotificationService:
         self.firebase_service = FirebaseService()
         self.notification_repo = NotificationRepository(db)
         self.device_repo = DeviceRepository()
+        self.safety_event_repo = SafetyEventRepository()
+        self.safety_circle_service = SafetyCircleService()
+        self._db = db
 
     def send_notification(
         self,
@@ -268,3 +273,114 @@ class NotificationService:
             priority=priority,
             ttl=ttl
         )
+
+    # ── Safety Circle dispatch ────────────────────────────────────────────────
+    # Central entry point for "notify this user's trusted contacts about X". Resolves the
+    # Safety Circle, respects per-event-type preferences, sends FCM to contacts who are
+    # themselves registered app users, logs a stub for SMS-only contacts (no SMS provider
+    # configured yet - Phase 2), and logs every recipient. Existing helpers above
+    # (send_sos_alert, send_guardian_alert, etc.) are unchanged and still notify the
+    # *triggering user's own devices* - they are a different concept (self-notification)
+    # from this (notifying the user's trusted contacts) and are left alone.
+    def dispatch_safety_event(
+        self,
+        user_id: str,
+        event_type: str,
+        title: str,
+        body: str,
+        data: Optional[Dict[str, Any]] = None,
+        incident_id: Optional[str] = None,
+        client_event_id: Optional[str] = None,
+        severity: str = "INFO",
+    ) -> Dict[str, Any]:
+        event = self.safety_event_repo.create_event(
+            user_id=user_id,
+            event_type=event_type,
+            client_event_id=client_event_id,
+            incident_id=incident_id,
+            severity=severity,
+            metadata=data,
+        )
+        event_id = event.get("id")
+
+        tokens = self.safety_circle_service.resolve_fcm_tokens_for_event(user_id, event_type)
+        push_result = self.send_multicast(
+            tokens=tokens,
+            title=title,
+            body=body,
+            data=data,
+            notification_type=event_type,
+            channel_id="safety_circle_channel",
+            priority="high",
+            user_id=user_id,
+            incident_id=incident_id,
+        )
+
+        sms_recipients = self.safety_circle_service.resolve_sms_recipients_for_event(user_id, event_type)
+        if sms_recipients:
+            # Stubbed: no SMS provider configured yet (Phase 2). Logging only so the intent
+            # is visible in logs/notification history rather than silently dropped.
+            logger.info(
+                f"[SMS STUB] {len(sms_recipients)} Safety Circle contact(s) opted into SMS for "
+                f"event_type={event_type}, user_id={user_id} - no SMS provider configured, not sent."
+            )
+
+        if event_id:
+            self.safety_event_repo.mark_processed(event_id)
+
+        if incident_id:
+            self._append_incident_notified_event(user_id, incident_id, event_type, push_result)
+
+        return {
+            "event_id": event_id,
+            "event_type": event_type,
+            "push": push_result,
+            "sms_stub_recipient_count": len(sms_recipients),
+        }
+
+    def send_safety_event_to_circle(
+        self,
+        user_id: str,
+        event_type: str,
+        title: str,
+        body: str,
+        data: Optional[Dict[str, Any]] = None,
+        incident_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Convenience wrapper for call sites that don't need idempotency (no client_event_id)."""
+        return self.dispatch_safety_event(
+            user_id=user_id,
+            event_type=event_type,
+            title=title,
+            body=body,
+            data=data,
+            incident_id=incident_id,
+        )
+
+    def _append_incident_notified_event(
+        self, user_id: str, incident_id: str, event_type: str, push_result: Dict[str, Any]
+    ) -> None:
+        """Best-effort: this repo has two separate incident-id systems (the Module #19
+        IncidentTimelineEvent local-DB timeline, and Supabase's sos_incidents) that are not
+        currently unified, so `incident_id` may not resolve in the timeline system. Never
+        let a timeline-append failure break notification dispatch.
+        """
+        if self._db is None:
+            return
+        try:
+            from app.repositories.incident_repository import IncidentRepository
+            from app.schemas.incident import TimelineEventCreate
+
+            IncidentRepository(self._db).add_timeline_event(
+                incident_id=incident_id,
+                user_id=user_id,
+                data=TimelineEventCreate(
+                    eventType="EMERGENCY_CONTACT_NOTIFIED",
+                    source="SAFETY_CIRCLE",
+                    title="Trusted contacts notified",
+                    description=f"{push_result.get('sent_count', 0)} trusted contact device(s) notified for {event_type}.",
+                    metadata={"event_type": event_type, "push_result": push_result},
+                ),
+            )
+        except Exception as err:
+            logger.warning(f"Could not append EMERGENCY_CONTACT_NOTIFIED timeline event for incident {incident_id}: {err}")

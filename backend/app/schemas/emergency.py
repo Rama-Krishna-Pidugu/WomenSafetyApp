@@ -7,12 +7,20 @@ class EmergencyContactCreate(BaseModel):
     phone: str
     relationship: Optional[str] = "FRIEND"
     priority: Optional[int] = 1
+    is_active: Optional[bool] = True
+    notification_enabled: Optional[bool] = True
+    live_location_enabled: Optional[bool] = True
+    sms_enabled: Optional[bool] = False
 
 class EmergencyContactUpdate(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
     relationship: Optional[str] = None
     priority: Optional[int] = None
+    is_active: Optional[bool] = None
+    notification_enabled: Optional[bool] = None
+    live_location_enabled: Optional[bool] = None
+    sms_enabled: Optional[bool] = None
 
 class EmergencyContactResponse(BaseModel):
     id: str
@@ -21,7 +29,12 @@ class EmergencyContactResponse(BaseModel):
     phone: str
     relationship: Optional[str] = None
     priority: int = 1
+    is_active: bool = True
+    notification_enabled: bool = True
+    live_location_enabled: bool = True
+    sms_enabled: bool = False
     created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
 class SOSIncidentCreate(BaseModel):
     user_id: str
